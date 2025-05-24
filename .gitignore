@@ -1,0 +1,54 @@
+# 💼 Environment files
+.env
+*.env
+
+# 🔐 API keys or secrets
+*.key
+*.pem
+*.token
+
+# 📦 Python build & cache files
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# 📊 Jupyter or Streamlit cache
+.ipynb_checkpoints/
+.streamlit/
+
+# 🧪 Logs and debug output
+*.log
+*.tmp
+*.bak
+debug.log
+
+# 🧾 System files
+.DS_Store
+Thumbs.db
+
+# 🧪 Backtest results or exports
+backtest/results/
+backtest/output/
+*.csv
+
+# 📦 Virtual environments
+venv/
+env/
+.venv/
+.envrc
+pip-wheel-metadata/
+
+# 💾 OS trash files
+*.swp
+*.swo
+
+# 🐳 Docker-specific
+*.pid
+*.sock
+
+# 📦 IDE & editor settings
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
