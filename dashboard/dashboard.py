@@ -2,40 +2,55 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objs as go
 from ta.momentum import RSIIndicator
-from bot.strategy import get_data  # You must have this function in strategy.py
+import sys
+from pathlib import Path
+from binance.client import Client
 
-st.set_page_config(layout="wide")
-st.title("📊 Crypto Trading Bot Dashboard")
+sys.path.append(str(Path(__file__).parent.parent))
 
-df = get_data('BTCUSDT', '1h', 200)
-df['RSI'] = RSIIndicator(df['c'], window=14).rsi()
+from bot.trading import BINANCE_API_KEY, BINANCE_API_SECRET
+from bot.strategy import get_data
 
-fig = go.Figure()
+client = Client(BINANCE_API_KEY, BINANCE_API_SECRET)
+df = get_data(client, 'BTCUSDT', Client.KLINE_INTERVAL_1HOUR, 200)
 
-fig.add_trace(go.Candlestick(
-    x=df.index,
-    open=df['o'],
-    high=df['h'],
-    low=df['l'],
-    close=df['c'],
-    name='Candlesticks'
-))
+if df is not None:
+    # Convert timestamp to datetime index
+    df.index = pd.to_datetime(df['timestamp'], unit='ms')
+    
+    # Calculate RSI - ensure close_series remains a Series after conversion
+    close_series = pd.Series(pd.to_numeric(df['close']))
+    df['RSI'] = RSIIndicator(close=close_series, window=14).rsi()
 
-fig.add_trace(go.Scatter(
-    x=df.index,
-    y=df['RSI'],
-    mode='lines',
-    name='RSI (14)',
-    yaxis='y2',
-    line=dict(color='blue')
-))
+    # Create figure
+    fig = go.Figure()
 
-fig.update_layout(
-    title="BTC/USDT 1H + RSI",
-    yaxis=dict(title='Price'),
-    yaxis2=dict(title='RSI', overlaying='y', side='right'),
-    height=600,
-    legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
-)
+    fig.add_trace(go.Candlestick(
+        x=df.index,
+        open=df['open'],
+        high=df['high'],
+        low=df['low'],
+        close=df['close'],
+        name='Candlesticks'
+    ))
 
-st.plotly_chart(fig, use_container_width=True)
+    fig.add_trace(go.Scatter(
+        x=df.index,
+        y=df['RSI'],
+        mode='lines',
+        name='RSI (14)',
+        yaxis='y2',
+        line=dict(color='blue')
+    ))
+
+    fig.update_layout(
+        title="BTC/USDT 1H + RSI",
+        yaxis=dict(title='Price'),
+        yaxis2=dict(title='RSI', overlaying='y', side='right'),
+        height=600,
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+else:
+    st.error("Failed to fetch data from Binance. Please check your API keys and internet connection.")

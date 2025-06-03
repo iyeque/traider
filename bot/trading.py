@@ -1,5 +1,16 @@
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+BINANCE_API_KEY = os.getenv('BINANCE_API_KEY')
+BINANCE_API_SECRET = os.getenv('BINANCE_API_SECRET')
 from binance.client import Client
-from binance.enums import *
+from binance.enums import (
+    SIDE_BUY,
+    SIDE_SELL,
+    ORDER_TYPE_MARKET
+)
 
 def place_market_order(client: Client, symbol: str, side: str, quantity: float):
     try:

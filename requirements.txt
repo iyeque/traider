@@ -1,8 +1,8 @@
 python-binance
-pandas
+pandas-stubs>=1.5.0  # Type stubs for pandas
 ta
 matplotlib
 requests
 streamlit
-plotly
+plotly>=5.18.0
 python-dotenv
