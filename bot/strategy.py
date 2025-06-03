@@ -1,5 +1,5 @@
 from binance.client import Client
-from binance.enums import *
+from binance.enums import SIDE_BUY, SIDE_SELL, ORDER_TYPE_MARKET
 
 def place_market_order(client: Client, symbol: str, side: str, quantity: float):
     try:
@@ -14,3 +14,13 @@ def place_market_order(client: Client, symbol: str, side: str, quantity: float):
     except Exception as e:
         print(f"❌ Order failed: {e}")
         return None
+
+
+def get_data(client, symbol, interval):
+    """Fetch market data from Binance"""
+    return client.get_klines(symbol=symbol, interval=interval)
+
+def generate_signal(data):
+    """Generate trading signals from market data"""
+    # Add your signal generation logic here
+    return "buy"  # Example return value

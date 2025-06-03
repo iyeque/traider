@@ -24,7 +24,7 @@ def run_bot():
         print("🛑 Skipping trade due to negative news sentiment.")
         return
 
-    df = get_data(SYMBOL, INTERVAL)
+    df = get_data(client, SYMBOL, INTERVAL)
     signal = generate_signal(df)
 
     print(f"📈 Signal detected: {signal.upper()}")
