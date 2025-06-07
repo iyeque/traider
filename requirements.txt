@@ -1,8 +1,15 @@
 python-binance
-pandas-stubs>=1.5.0  # Type stubs for pandas
+pandas-stubs>=1.5.0
 ta
 matplotlib
 requests
 streamlit
 plotly>=5.18.0
 python-dotenv
+
+# 🐦 Twitter sentiment (via scraping + NLP)
+snscrape
+textblob
+
+# Required for TextBlob NLP
+nltk

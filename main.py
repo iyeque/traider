@@ -1,42 +1,61 @@
-# crypto_trading_bot/main.py
-
-from binance.client import Client
+import asyncio
+import time
+from datetime import datetime
 from dotenv import load_dotenv
 import os
-from bot.strategy import get_data, generate_signal
-from bot.trading import place_market_order
+from binance.client import Client
 from bot.grid import place_grid_orders
-from bot.news_filter import is_market_safe
+from bot.trading import place_market_order
+from bot.sentiment_engine import is_market_safe  # updated for real-time sentiment
 
 load_dotenv()
 
 BINANCE_API_KEY = os.getenv("BINANCE_API_KEY")
 BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET")
+SYMBOL = os.getenv("TRADE_SYMBOL", "BTCUSDT")
+INTERVAL = os.getenv("INTERVAL", "15m")
+TRADE_INTERVAL_SECONDS = int(os.getenv("TRADE_INTERVAL_SECONDS", "300"))  # 5 min
 
-client = Client(BINANCE_API_KEY, BINANCE_API_SECRET)
+class BotState:
+    def __init__(self):
+        self.last_run_time: datetime | None = None  # fixed type hint
+        self.total_trades = 0
+        self.active = True
+        self.client = Client(BINANCE_API_KEY, BINANCE_API_SECRET)
 
-SYMBOL = "BTCUSDT"
-INTERVAL = "1h"
+bot_state = BotState()
 
-def run_bot():
-    print("🚀 Running Crypto Trading Bot")
-    if not is_market_safe():
-        print("🛑 Skipping trade due to negative news sentiment.")
+async def run_bot():
+    if not bot_state.active:
+        print("❌ Bot is inactive.")
         return
 
-    df = get_data(client, SYMBOL, INTERVAL)
-    signal = generate_signal(df)
+    now = datetime.now()
+    if bot_state.last_run_time and (now - bot_state.last_run_time).seconds < TRADE_INTERVAL_SECONDS:
+        print("⏳ Waiting for next interval...")
+        return
 
-    print(f"📈 Signal detected: {signal.upper()}")
+    print(f"\n📈 Running bot at {now.strftime('%Y-%m-%d %H:%M:%S')}")
 
-    if signal == "grid_buy":
-        place_grid_orders(client, SYMBOL, base_qty=50)
-    elif signal == "breakout_buy":
-        place_market_order(client, SYMBOL, "buy", quantity=0.001)
-    elif signal == "sell":
-        place_market_order(client, SYMBOL, "sell", quantity=0.001)
-    else:
-        print("⏸ No action taken (HOLD).")
+    if not is_market_safe():
+        print("🛑 Market conditions not safe. Skipping trade.")
+        return
+
+    # 🧠 Strategy: either grid or market buy — adjust as needed
+    await place_grid_orders(bot_state.client, SYMBOL, base_qty=5)
+    # await place_market_order(bot_state.client, SYMBOL, quantity=5)
+
+    bot_state.total_trades += 1
+    bot_state.last_run_time = now
+    print(f"✅ Total trades executed: {bot_state.total_trades}")
+
+async def run_scheduler():
+    while True:
+        await run_bot()
+        await asyncio.sleep(TRADE_INTERVAL_SECONDS)
 
 if __name__ == "__main__":
-    run_bot()
+    try:
+        asyncio.run(run_scheduler())
+    except KeyboardInterrupt:
+        print("\n🛑 Bot stopped by user.")
