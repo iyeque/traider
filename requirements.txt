@@ -6,6 +6,7 @@ requests
 streamlit
 plotly>=5.18.0
 python-dotenv
+feedparser
 
 # 🐦 Twitter sentiment (via scraping + NLP)
 snscrape
