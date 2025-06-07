@@ -8,7 +8,12 @@ from binance.client import Client
 
 sys.path.append(str(Path(__file__).parent.parent))
 
-from bot.trading import BINANCE_API_KEY, BINANCE_API_SECRET
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+BINANCE_API_KEY = os.getenv('BINANCE_API_KEY')
+BINANCE_API_SECRET = os.getenv('BINANCE_API_SECRET')
 from bot.strategy import get_data
 
 client = Client(BINANCE_API_KEY, BINANCE_API_SECRET)
