@@ -16,7 +16,7 @@ def apply_indicators(df):
     df['BB_Width'] = (df['high'].rolling(20).max() - df['low'].rolling(20).min()) / df['close']
     return df
 
-def strategy_backtest(df, starting_balance=10000, position_size=0.05):
+def strategy_backtest(df, starting_balance=10000, position_size=0.05, fee_rate=0.001, slippage_pct=0.0005):
     balance = starting_balance
     position = 0
     entry_price = 0
@@ -29,51 +29,65 @@ def strategy_backtest(df, starting_balance=10000, position_size=0.05):
         bb_width = df['BB_Width'].iloc[i]
 
         if position == 0:
+            # Grid entry (limit order)
             if rsi < 35 and bb_width < 0.05:
-                # Grid entry
-                entry_price = price
-                position = (balance * position_size) / price
-                balance -= position * price
-                trade_log.append({'type': 'buy(grid)', 'price': price, 'balance': balance, 'timestamp': df['timestamp'].iloc[i]})
+                entry_price = price  # Assumes limit order fills at the target price
+                trade_value = (balance * position_size)
+                fee = trade_value * fee_rate
+                position = trade_value / entry_price
+                balance -= (trade_value + fee)
+                trade_log.append({'type': 'buy(grid)', 'price': entry_price, 'balance': balance, 'timestamp': df['timestamp'].iloc[i]})
 
+            # Breakout entry (market order)
             elif rsi < 70 and price > prev_high:
-                # Breakout entry
-                entry_price = price
-                position = (balance * position_size) / price
-                balance -= position * price
-                trade_log.append({'type': 'buy(breakout)', 'price': price, 'balance': balance, 'timestamp': df['timestamp'].iloc[i]})
+                entry_price = price * (1 + slippage_pct)  # Apply slippage
+                trade_value = (balance * position_size)
+                fee = trade_value * fee_rate
+                position = trade_value / entry_price
+                balance -= (trade_value + fee)
+                trade_log.append({'type': 'buy(breakout)', 'price': entry_price, 'balance': balance, 'timestamp': df['timestamp'].iloc[i]})
         else:
+            # Exit condition (market order)
             if rsi > 80:
-                balance += position * price
-                trade_log.append({'type': 'sell', 'price': price, 'balance': balance, 'timestamp': df['timestamp'].iloc[i]})
+                exit_price = price * (1 - slippage_pct)  # Apply slippage
+                trade_value = position * exit_price
+                fee = trade_value * fee_rate
+                balance += (trade_value - fee)
+                trade_log.append({'type': 'sell', 'price': exit_price, 'balance': balance, 'timestamp': df['timestamp'].iloc[i]})
                 position = 0
 
+    # If still in a position at the end, exit at the last known price
     if position > 0:
-        balance += position * df['close'].iloc[-1]
-        trade_log.append({'type': 'final_exit', 'price': df['close'].iloc[-1], 'balance': balance, 'timestamp': df['timestamp'].iloc[-1]})
+        final_price = df['close'].iloc[-1] * (1 - slippage_pct)
+        trade_value = position * final_price
+        fee = trade_value * fee_rate
+        balance += (trade_value - fee)
+        trade_log.append({'type': 'final_exit', 'price': final_price, 'balance': balance, 'timestamp': df['timestamp'].iloc[-1]})
 
     return pd.DataFrame(trade_log), balance
 
 def plot_performance(trades, df):
     plt.figure(figsize=(14, 6))
-    plt.plot(df['timestamp'], df['close'], label='Price')
+    plt.plot(df['timestamp'], df['close'], label='Price', alpha=0.5)
 
-    for _, row in trades.iterrows():
-        color = 'green' if 'buy' in row['type'] else 'red'
-        marker = '^' if 'buy' in row['type'] else 'v'
-        plt.scatter(row['timestamp'], row['price'], color=color, marker=marker, s=100, label=row['type'])
+    buy_trades = trades[trades['type'].str.contains('buy')]
+    sell_trades = trades[trades['type'].str.contains('sell|exit')]
 
-    plt.title("Trade Entries and Exits")
+    plt.scatter(buy_trades['timestamp'], buy_trades['price'], color='green', marker='^', s=100, label='Buy')
+    plt.scatter(sell_trades['timestamp'], sell_trades['price'], color='red', marker='v', s=100, label='Sell')
+
+    plt.title("Backtest Performance with Fees & Slippage")
     plt.xlabel("Time")
     plt.ylabel("Price")
-    plt.grid()
-    plt.legend(loc='upper left')
+    plt.grid(True)
+    plt.legend()
     plt.show()
 
 if __name__ == "__main__":
     df = load_data("backtest/BTCUSDT_1h.csv")  # Add your historical CSV file
     df = apply_indicators(df)
-    trades, final_balance = strategy_backtest(df)
+    # Run backtest with fees and slippage
+    trades, final_balance = strategy_backtest(df, fee_rate=0.001, slippage_pct=0.0005)
     print(trades)
-    print(f"💰 Final Balance: ${final_balance:.2f}")
+    print(f"💰 Final Balance (with fees & slippage): ${final_balance:.2f}")
     plot_performance(trades, df)

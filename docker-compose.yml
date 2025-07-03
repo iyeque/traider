@@ -1,0 +1,8 @@
+version: '3.8'
+services:
+  traider-bot:
+    build: .
+    container_name: traider-bot
+    env_file:
+      - .env
+    restart: unless-stopped
