@@ -2,6 +2,29 @@ import pandas as pd
 from ta.momentum import RSIIndicator
 from ta.volatility import AverageTrueRange
 import matplotlib.pyplot as plt
+import os
+from binance.client import Client
+import time
+
+def fetch_binance_klines(symbol, interval, start_str, end_str=None, filename=None, api_key=None, api_secret=None):
+    """
+    Fetch historical klines from Binance and save as CSV in backtest/ directory.
+    """
+    client = Client(api_key, api_secret)
+    klines = client.get_historical_klines(symbol, interval, start_str, end_str)
+    columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'close_time',
+               'quote_asset_volume', 'num_trades', 'taker_buy_base', 'taker_buy_quote', 'ignore']
+    df = pd.DataFrame(klines, columns=columns)
+    df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
+    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+    for col in ['open', 'high', 'low', 'close', 'volume']:
+        df[col] = df[col].astype(float)
+    if filename is None:
+        filename = f"backtest/{symbol}_{interval}.csv"
+    os.makedirs('backtest', exist_ok=True)
+    df.to_csv(filename, index=False)
+    print(f"Saved historical data to {filename}")
+    return filename
 
 def load_data(csv_file):
     df = pd.read_csv(csv_file)
@@ -84,7 +107,16 @@ def plot_performance(trades, df):
     plt.show()
 
 if __name__ == "__main__":
-    df = load_data("backtest/BTCUSDT_1h.csv")  # Add your historical CSV file
+    # --- Fetch data if not present ---
+    symbol = "BTCUSDT"
+    interval = Client.KLINE_INTERVAL_1HOUR
+    csv_file = f"backtest/{symbol}_1h.csv"
+    api_key = os.getenv("BINANCE_API_KEY")
+    api_secret = os.getenv("BINANCE_API_SECRET")
+    if not os.path.exists(csv_file):
+        fetch_binance_klines(symbol, interval, "1 Jan, 2022", None, csv_file, api_key, api_secret)
+        time.sleep(1)
+    df = load_data(csv_file)
     df = apply_indicators(df)
     # Run backtest with fees and slippage
     trades, final_balance = strategy_backtest(df, fee_rate=0.001, slippage_pct=0.0005)

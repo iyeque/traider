@@ -21,7 +21,7 @@ An automated crypto trading bot built for Binance that uses a **dynamic, risk-ma
 - ✅ Grid trading for sideways markets
 - ✅ Dynamic position sizing based on risk
 - ✅ News sentiment filter to avoid risky trades
-- ✅ Backtesting engine with visual PnL plots
+- ✅ Backtesting engine with visual PnL plots (now includes fees and slippage for realistic evaluation)
 
 ---
 
