@@ -10,6 +10,5 @@ python-dotenv
 feedparser
 tenacity
 textblob
-
-# Required for TextBlob NLP
 nltk
+optuna

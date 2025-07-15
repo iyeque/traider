@@ -6,7 +6,7 @@ class PositionManager:
         self.positions = {}  # key: symbol, value: dict with entry, qty, side, etc.
         self.lock = threading.Lock()
 
-    def open_position(self, symbol: str, entry_price: float, quantity: float, side: str, strategy: str):
+    def open_position(self, symbol: str, entry_price: float, quantity: float, side: str, strategy: str, invalidation_price: Optional[float] = None):
         with self.lock:
             self.positions[symbol] = {
                 'entry_price': entry_price,
@@ -14,7 +14,8 @@ class PositionManager:
                 'side': side,
                 'strategy': strategy,
                 'open': True,
-                'unrealized_pnl': 0.0
+                'unrealized_pnl': 0.0,
+                'invalidation_price': invalidation_price
             }
 
     def close_position(self, symbol: str, exit_price: float):

@@ -44,6 +44,14 @@ class TradingDashboard:
                             <div class="stat-value" id="profit">$0.00</div>
                         </div>
                         <div class="stat">
+                            <div class="stat-title">Win Rate</div>
+                            <div class="stat-value" id="win_rate">0%</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-title">Consec. Losses</div>
+                            <div class="stat-value" id="consecutive_losses">0</div>
+                        </div>
+                        <div class="stat">
                             <div class="stat-title">Active Strategies</div>
                             <div class="stat-value" id="active_strategies">0</div>
                         </div>
@@ -60,7 +68,7 @@ class TradingDashboard:
                         <h2>Recent Trades</h2>
                         <table>
                             <thead>
-                                <tr><th>Symbol</th><th>Side</th><th>Quantity</th><th>Profit</th></tr>
+                                <tr><th>Symbol</th><th>Side</th><th>Quantity</th><th>Profit</th><th>Timestamp</th></tr>
                             </thead>
                             <tbody id="trade_history"></tbody>
                         </table>
@@ -72,6 +80,8 @@ class TradingDashboard:
                         const data = JSON.parse(event.data);
                         document.getElementById('trades').textContent = data.trades;
                         document.getElementById('profit').textContent = '$' + data.profit.toFixed(2);
+                        document.getElementById('win_rate').textContent = (data.win_rate * 100).toFixed(2) + '%';
+                        document.getElementById('consecutive_losses').textContent = data.consecutive_losses;
                         document.getElementById('active_strategies').textContent = data.active_strategies;
                         document.getElementById('sentiment').textContent = data.last_sentiment !== null ? data.last_sentiment.toFixed(2) : '-';
                         document.getElementById('galaxy_score').textContent = data.last_galaxy_score !== null ? data.last_galaxy_score : '-';
@@ -79,7 +89,7 @@ class TradingDashboard:
                         tbody.innerHTML = '';
                         (data.trade_history || []).slice(-10).reverse().forEach(trade => {
                             const tr = document.createElement('tr');
-                            tr.innerHTML = `<td>${trade.symbol}</td><td>${trade.side}</td><td>${trade.quantity}</td><td>${trade.profit}</td>`;
+                            tr.innerHTML = `<td>${trade.symbol}</td><td>${trade.side}</td><td>${trade.quantity}</td><td>${trade.profit}</td><td>${new Date(trade.timestamp).toLocaleString()}</td>`;
                             tbody.appendChild(tr);
                         });
                     };
