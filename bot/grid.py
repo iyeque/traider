@@ -2,6 +2,7 @@ import logging
 import asyncio
 from binance.client import Client
 from binance.enums import SIDE_BUY, SIDE_SELL, ORDER_TYPE_LIMIT, TIME_IN_FORCE_GTC
+from binance.exceptions import BinanceAPIException
 from bot.trading_stats import LiveTradingStats
 from bot.position_manager import PositionManager
 from bot.exchange_info import format_quantity, get_min_notional
@@ -38,32 +39,36 @@ async def place_grid_orders(client: Client, symbol: str, base_qty: float, levels
             quantity_str = format_quantity(client, symbol, quantity)
 
             def create_and_log_order(p=buy_price, q=quantity_str):
-                order = client.create_order(
-                    symbol=symbol,
-                    side=SIDE_BUY,
-                    type=ORDER_TYPE_LIMIT,
-                    quantity=q,
-                    price=str(round(p, 2)),
-                    timeInForce=TIME_IN_FORCE_GTC
-                )
-                LiveTradingStats().log_trade({
-                    'symbol': symbol,
-                    'side': 'buy',
-                    'quantity': q,
-                    'order': order
-                })
-                position_manager.open_position(symbol, float(p), float(q), 'buy', 'grid', invalidation_price=invalidation_price)
-                
-                tp_price = float(p) * (1 + profit_target_pct / 100)
-                client.create_order(
-                    symbol=symbol,
-                    side=SIDE_SELL,
-                    type=ORDER_TYPE_LIMIT,
-                    quantity=q,
-                    price=str(round(tp_price, 2)),
-                    timeInForce=TIME_IN_FORCE_GTC
-                )
-                return order
+                try:
+                    order = client.create_order(
+                        symbol=symbol,
+                        side=SIDE_BUY,
+                        type=ORDER_TYPE_LIMIT,
+                        quantity=q,
+                        price=str(round(p, 2)),
+                        timeInForce=TIME_IN_FORCE_GTC
+                    )
+                    LiveTradingStats().log_trade({
+                        'symbol': symbol,
+                        'side': 'buy',
+                        'quantity': q,
+                        'order': order
+                    })
+                    position_manager.open_position(symbol, float(p), float(q), 'buy', 'grid', invalidation_price=invalidation_price)
+                    
+                    tp_price = float(p) * (1 + profit_target_pct / 100)
+                    client.create_order(
+                        symbol=symbol,
+                        side=SIDE_SELL,
+                        type=ORDER_TYPE_LIMIT,
+                        quantity=q,
+                        price=str(round(tp_price, 2)),
+                        timeInForce=TIME_IN_FORCE_GTC
+                    )
+                    return order
+                except BinanceAPIException as e:
+                    logging.error(f"Failed to place grid order for {q} {symbol} at {p}: {e}")
+                    return None
 
             task = loop.run_in_executor(
                 None,
@@ -76,9 +81,9 @@ async def place_grid_orders(client: Client, symbol: str, base_qty: float, levels
             logging.error("No grid orders were placed. Check your risk settings and account balance.")
             return
 
-        await asyncio.gather(*tasks)
-        logging.info(f"Successfully placed {len(tasks)} grid orders and corresponding sell orders")
+        results = await asyncio.gather(*tasks)
+        successful_orders = [res for res in results if res is not None]
+        logging.info(f"Successfully placed {len(successful_orders)} out of {len(tasks)} grid orders.")
 
     except Exception as e:
         logging.error(f"Grid laddering failed: {str(e)}")
-        raise

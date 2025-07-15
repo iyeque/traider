@@ -14,7 +14,7 @@ def analyze_text_sentiment(text: str) -> float:
 
 
 
-def is_market_safe(min_sentiment: float = 0.1, min_fear_greed: int = 50) -> bool:
+def is_market_safe(min_sentiment: float, min_fear_greed: int) -> bool:
     """
     Checks if the market conditions are safe based on sentiment analysis and social signals.
     Fallbacks to RSS-based sentiment if NewsAPI fails.

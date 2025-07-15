@@ -45,6 +45,7 @@ BASE_RSI_OVERBOUGHT = float(os.getenv("BASE_RSI_OVERBOUGHT", "70"))
 USE_BOLLINGER_BANDS = os.getenv("USE_BOLLINGER_BANDS", "False").lower() == "true"
 BB_WINDOW = int(os.getenv("BB_WINDOW", "20"))
 BB_WINDOW_DEV = float(os.getenv("BB_WINDOW_DEV", "2.0"))
+FEAR_GREED_THRESHOLD = int(os.getenv("FEAR_GREED_THRESHOLD", "50"))
 
 class BotState:
     def __init__(self, client):
@@ -69,7 +70,6 @@ def get_account_balance(client: Client, quote_asset: str = 'USDT') -> float:
 
 def grid_strategy(bot_state):
     balance = get_account_balance(bot_state.client)
-    is_market_safe() # This call updates the internal sentiment in LiveTradingStats
     sentiment = trading_stats.get_sentiment() # Retrieve the sentiment that was just updated
     amount_to_risk = calculate_trade_size(balance, TRADE_MODE, RISK_PER_TRADE_PERCENT, sentiment, FIXED_TRADE_AMOUNT_USDT, SENTIMENT_SIZING_MULTIPLIER)
     return place_grid_orders(
@@ -92,9 +92,6 @@ def breakout_strategy(bot_state):
         df = calculate_bollinger_bands(df, window=BB_WINDOW, window_dev=BB_WINDOW_DEV)
 
     # Get live sentiment from sentiment_engine
-    # Note: is_market_safe() updates LiveTradingStats with sentiment and fear_greed_index
-    # We need to call it to get the latest sentiment, even if we don't use its boolean return directly here for signal generation
-    is_market_safe() # This call updates the internal sentiment in LiveTradingStats
     sentiment = trading_stats.get_sentiment() # Retrieve the sentiment that was just updated
 
     signal = generate_signal(
@@ -138,7 +135,7 @@ async def run_bot(bot_state):
 
     logging.info(f"\nRunning bot at {now.strftime('%Y-%m-%d %H:%M:%S')}")
 
-    if not is_market_safe():
+    if not is_market_safe(min_sentiment=SENTIMENT_THRESHOLD_POSITIVE, min_fear_greed=FEAR_GREED_THRESHOLD):
         logging.warning("Market conditions not safe. Skipping trade.")
         return
 
