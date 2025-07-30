@@ -77,13 +77,16 @@ def objective(trial, df, historical_sentiment_csv, client):  # Pass data as argu
         raise
 
 
+from dotenv import load_dotenv
+load_dotenv()
+
 if __name__ == "__main__":
     # Create Binance client
     api_key = os.getenv("BINANCE_API_KEY")
     api_secret = os.getenv("BINANCE_API_SECRET")
     client = Client(api_key, api_secret)
     # --- Load Data Once ---
-    symbol = "BTCUSDT"
+    symbol = os.getenv("TRADE_SYMBOL", "BTCUSDT")
     interval = "1h"
     csv_file = f"backtest/{symbol}_{interval}.csv"
 

@@ -13,14 +13,22 @@ def analyze_trades(trades_df: pd.DataFrame):
         logging.info("No trades to analyze.")
         return
 
-    # Use the pre-calculated 'profit_loss' column directly
-    trades_df['pnl'] = trades_df['profit_loss']
+    # A "trade" is defined by an exit transaction (sell, sl, tp, invalidation, etc.)
+    # We filter for these exit transactions to get the true PnL for each completed trade cycle.
+    exit_trades_df = trades_df[trades_df['type'].str.contains('sell|exit|invalidation', regex=True)].copy()
+
+    if exit_trades_df.empty:
+        logging.info("No completed trades (exits) to analyze.")
+        return
+
+    # Use the pre-calculated 'profit_loss' column directly from the exit trades
+    exit_trades_df['pnl'] = exit_trades_df['profit_loss']
 
     # Identify winning and losing trades based on PnL
-    winning_trades_pnl = trades_df[trades_df['pnl'] > 0]['pnl']
-    losing_trades_pnl = trades_df[trades_df['pnl'] < 0]['pnl']
+    winning_trades_pnl = exit_trades_df[exit_trades_df['pnl'] > 0]['pnl']
+    losing_trades_pnl = exit_trades_df[exit_trades_df['pnl'] < 0]['pnl']
 
-    total_trades = len(trades_df)
+    total_trades = len(exit_trades_df)
     winning_trades_count = len(winning_trades_pnl)
     losing_trades_count = len(losing_trades_pnl)
 
@@ -39,7 +47,7 @@ def analyze_trades(trades_df: pd.DataFrame):
     current_streak = 0
     current_streak_type = None # 'win' or 'loss'
 
-    for pnl in trades_df['pnl']:
+    for pnl in exit_trades_df['pnl']:
         if pnl > 0:
             if current_streak_type == 'win':
                 current_streak += 1
@@ -83,9 +91,9 @@ def analyze_trades(trades_df: pd.DataFrame):
     logging.info(f"Longest Losing Streak: {longest_losing_streak}")
 
     # Plot PnL Distribution
-    if not trades_df.empty:
+    if not exit_trades_df.empty:
         plt.figure(figsize=(10, 6))
-        plt.hist(trades_df['pnl'], bins=20, edgecolor='black')
+        plt.hist(exit_trades_df['pnl'], bins=20, edgecolor='black')
         plt.title("Distribution of Trade PnL")
         plt.xlabel("Profit/Loss (USDT)")
         plt.ylabel("Frequency")
@@ -94,8 +102,25 @@ def analyze_trades(trades_df: pd.DataFrame):
 
 if __name__ == "__main__":
     # This script is intended to be called by optimize_params.py after a study is complete.
-    # It can also be used to analyze a trade log CSV directly.
-    # Example: 
-    # trades_df = pd.read_csv('backtest/optimization_results/best_trades_balance_12345.67.csv')
-    # analyze_trades(trades_df)
-    logging.info("This script is a module to be used by other parts of the application.")
+    # When run directly, it will automatically find and analyze the LATEST trade log CSV.
+    import os
+    import glob
+
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+    try:
+        results_dir = os.path.join("backtest", "optimization_results")
+        # Find the latest CSV file in the directory based on modification time
+        latest_file = max(glob.glob(os.path.join(results_dir, '*.csv')), key=os.path.getctime)
+        
+        if latest_file:
+            logging.info(f"Found latest trade log: {latest_file}")
+            trades_df = pd.read_csv(latest_file)
+            analyze_trades(trades_df)
+        else:
+            logging.error(f"No trade log files found in {results_dir}")
+
+    except ValueError:
+        logging.error(f"No trade log files found in {os.path.join('backtest', 'optimization_results')}")
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")

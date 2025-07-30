@@ -345,7 +345,11 @@ def strategy_backtest(client: Client,
                 
                 if filled_levels_count > 0:
                     # Simulate buying into the grid
-                    avg_entry_price = sum(grid_buy_prices[:filled_levels_count]) / filled_levels_count
+                    avg_entry_price = sum(grid_buy_prices[:filled_levels_count]) / filled_levels_count if filled_levels_count > 0 else 0
+                    if avg_entry_price <= 0:
+                        logging.warning(f"Skipping grid buy due to invalid avg_entry_price ({avg_entry_price:.2f}) at {timestamp}.")
+                        continue
+
                     amount_per_level_usdt = amount_to_risk / grid_levels
                     total_quantity_usdt = amount_per_level_usdt * filled_levels_count
                     total_quantity = total_quantity_usdt / avg_entry_price
@@ -436,7 +440,7 @@ def strategy_backtest(client: Client,
                             'timestamp': execution_timestamp # Use execution timestamp
                         }
                         trade_log.append({'type': 'buy(breakout)', 'price': entry_price, 'quantity': quantity, 'balance': balance, 'timestamp': execution_timestamp, 'profit_loss': 0.0})
-                        logging.info(f"📈 BREAKOUT BUY at {execution_timestamp}: Price {entry_price:.2f}, Qty {quantity:.4f}, SL {sl_price:.2f}, TP {tp_price:.2f}")
+                        logging.info(f"📈 BREAKOUT BUY at {execution_timestamp}: Price {entry_price:.2f}, Qty {float(quantity):.4f}, SL {sl_price:.2f}, TP {tp_price:.2f}")
                         trade_count += 1 # Increment trade count on successful entry
                     else:
                         logging.warning(f"Skipping breakout buy due to insufficient funds or invalid quantity at {timestamp}.")
@@ -530,9 +534,12 @@ def plot_performance(trades, df):
     plt.legend()
     plt.show()
 
+from dotenv import load_dotenv
+load_dotenv()
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
-    symbol = "BTCUSDT"
+    symbol = os.getenv("TRADE_SYMBOL", "BTCUSDT")
     interval = Client.KLINE_INTERVAL_1HOUR
     csv_file = f"backtest/{symbol}_1h.csv"
     api_key = os.getenv("BINANCE_API_KEY")
