@@ -2,95 +2,140 @@
 
 ## 🧠 Overview
 
-Traider is an automated crypto trading bot for Binance, built around a dynamic, risk-managed hybrid strategy. It features:
+Traider is an automated crypto trading bot for Binance, built around a dynamic, risk-managed hybrid strategy. It features a robust PnL tracking system, persistent trade logging, and a powerful analysis toolkit.
+
 - **Dynamic Strategy Selection:** Switches between breakout and grid trading based on market volatility (ATR).
-- **Breakout Strategy:** Captures trends with market orders protected by OCO Stop-Loss and Take-Profit.
-- **Grid Strategy:** Accumulates positions in sideways markets with a ladder of limit orders.
-- **Sentiment Analysis:** Filters and enhances trades using real-time news and social sentiment.
-- **Dynamic Position Sizing:** Calculates order size based on a fixed percentage of your account balance.
-- **Backtesting Engine:** Realistic simulation with slippage, latency, exchange constraints, drawdown, trade limits, and sentiment integration.
+- **Active Position Monitoring:** A background service actively monitors placed orders to track the entire lifecycle of a trade.
+- **Automated PnL Calculation:** Automatically calculates and logs the realized Profit & Loss for every completed trade.
+- **Persistent Trade Logging:** Saves a detailed history of all live and testnet trades to `live_trades.csv` and `testnet_trades.csv`.
+- **In-depth Analysis:** Comes with a script to analyze your trade logs and generate detailed performance reports.
+- **Multi-Currency Support:** The provided Docker Compose setup allows for running separate, optimized bot instances for multiple trading pairs simultaneously.
+- **Enhanced Backtesting:** Features realistic backtesting with dynamic slippage, latency simulation, and exchange constraints.
+- **Parameter Optimization:** Automated parameter optimization using Optuna to find the most profitable strategy configurations.
+- **Sentiment Analysis Integration:** Deep sentiment integration for more informed trading decisions based on market sentiment.
+ - **Live Sentiment & Safety Gate:** Real-time sentiment from CryptoPanic, NewsAPI, RSS, plus Fear & Greed Index to gate trades.
 
 ---
 
 ## 📦 Features
 
-- Binance API live trading support
+- Binance API live and testnet trading support
+- **Persistent CSV Trade Logging**
+- **Automated PnL Calculation & Performance Analysis**
+- **Active Order Monitoring & Position Management**
 - Dynamic strategy selection using ATR
-- Breakout and grid trading
-- Dynamic position sizing
-- Sentiment filter for risk management
-- Realistic backtesting engine (fees, slippage, latency, exchange rules)
-- Parameter optimization with Optuna
-- Automated unit tests for reliability
+- Breakout and grid trading strategies
+- **Advanced Sentiment Analysis** for risk management and position sizing
+- **Realistic Backtesting Engine** with dynamic slippage, latency simulation, and exchange constraints
+- **Parameter Optimization** with Optuna, including walk-forward validation
+- **Historical Data Acquisition** for sentiment and price data
+- **Bollinger Bands** integration for enhanced signal generation
+- **Comprehensive Performance Metrics** for strategy evaluation
 
 ---
 
 ## ⚙️ Installation
 
-1. Clone the repo:
+1.  Clone the repo:
     ```bash
     git clone https://github.com/iyeque/Traider.git
     cd Traider
     ```
-2. Install dependencies:
+2.  Install dependencies:
     ```bash
     pip install -r requirements.txt
     ```
-3. Create your .env file:
+3.  Create your .env file:
     ```bash
     cp .env.example .env
     ```
-4. Add your API keys and configure your strategy in the `.env` file.
+4.  Add your API keys and configure your strategy in the `.env` file. Set `BINANCE_ENV` to `TESTNET` to use the testnet.
+
+### Environment variables for live sentiment
+- `CRYPTOPANIC_API_KEY` (optional, recommended)
+- `NEWSAPI_KEY` (optional)
+If not provided or sources return no data, the bot falls back to RSS feeds and a neutral score.
 
 ---
 
 ## 💻 Running the Bot
 
-### With Docker (Recommended)
+### With Docker (Recommended for Multi-Currency)
+The `docker-compose.yml` is pre-configured to run four bot instances, one for each currency (BNB, BTC, ETH, SOL), with individually tuned parameters.
 ```bash
 docker-compose up -d
 ```
-View logs:
+View logs for a specific bot:
 ```bash
-docker-compose logs -f
+docker-compose logs -f traider-bot-btc
 ```
 
 ### Natively
+When you run the bot natively, it starts the main trading logic and the background `OrderMonitor` to track trade executions and PnL.
 ```bash
 python main.py
 ```
+The bot evaluates market safety each cycle using live sentiment and the Fear & Greed Index (see below). Tune thresholds in `config`.
 
 ---
 
-## 🔄 Backtesting & Optimization Workflow
+## 📊 Monitoring and Analysis
 
-For robust strategy evaluation, follow this workflow:
-1. **Fetch Historical Data:**
-   - Run `data_acquisition/fetch_historical_data.py` to gather and process historical price and sentiment data from multiple sources.
-2. **Run Backtest:**
-   - Use `backtest/backtest.py` to simulate trading strategies on the historical data, incorporating sentiment and realistic exchange constraints.
-3. **Optimize Parameters:**
-   - Use `backtest/optimize_params.py` to systematically search for the best strategy parameters using Optuna, based on backtest results. This step may generate detailed trade logs for top-performing strategies.
-4. **Analyze Trades (Optional):**
-   - Use `backtest/analyze_trades.py` to further analyze trade logs and results produced during optimization. This helps you understand which parameter sets performed best and why.
+This project provides several tools to monitor your bot's activity and analyze its performance.
 
-### Visual Overview
-```mermaid
-graph TD
-    A[Fetch Historical Data]
-    B[Backtesting]
-    C[Parameter Optimization]
-    D[Trade Analysis]
-    E[Live Trading]
+### 1. Trade Log Analysis (Recommended)
 
-    A --> B
-    B --> C
-    C --> D
-    D --> E
-    E --> A
+The most powerful analysis tool is the `analyze_trades.py` script. It reads your CSV trade logs and generates a comprehensive performance report with key metrics like Net Profit, Win Rate, and Profit Factor, along with a PnL distribution chart.
+
+-   **Live Trades:** `live_trades.csv`
+-   **Testnet Trades:** `testnet_trades.csv`
+
+**How to run the analysis:**
+```bash
+# To analyze your live trades
+py backtest/analyze_trades.py live_trades.csv
+
+# To analyze your testnet trades
+py backtest/analyze_trades.py testnet_trades.csv
 ```
 
-This flow ensures your strategies are tested on realistic data before live deployment.
+### 2. Enhanced Backtesting
+
+The backtesting engine (`backtest/backtest.py`) now provides more realistic simulations with:
+
+- **Dynamic Slippage:** Slippage calculated based on trade quantity
+- **Latency Simulation:** Realistic execution delays
+- **Exchange Constraints:** MIN_NOTIONAL and LOT_SIZE checks
+- **Global Drawdown Control:** Stops trading if maximum drawdown is hit
+- **Trade Count Limit:** Limits the number of trades in a backtest
+- **Sentiment Integration:** Uses historical sentiment data
+- **Comprehensive Metrics:** Detailed performance metrics
+
+### 3. Live Sentiment Integration
+
+Live sentiment is fetched by `data_acquisition/fetch_live_sentiment.py` (CryptoPanic, NewsAPI, RSS) and the Fear & Greed Index. It is consumed by `bot/sentiment_engine.is_market_safe()` which updates `LiveTradingStats`. 
+
+- Safety gate: `main.py` calls `is_market_safe(min_sentiment, min_fear_greed)` before running strategies.
+- Signal context: `breakout_strategy` pulls the latest value via `LiveTradingStats().get_sentiment()`.
+- Configuration: tune `SENTIMENT_THRESHOLD_POSITIVE`, `SENTIMENT_THRESHOLD_NEGATIVE`, and `FEAR_GREED_THRESHOLD` in `config`.
+
+### 3. Real-time Dashboard
+
+The dashboard provides a simple, real-time web interface to see high-level stats of a single running bot instance.
+
+**How to run it:**
+```bash
+# Run this in a separate terminal
+py manual_dashboard.py
+```
+Then open your browser to `http://127.0.0.1:8181`.
+
+### 3. Raw Account Data Check
+
+For a quick, on-demand check of your raw testnet account data (all balances and full trade history from the exchange), use the `check_testnet.py` script.
+```bash
+py check_testnet.py
+```
 
 ---
 
@@ -98,7 +143,6 @@ This flow ensures your strategies are tested on realistic data before live deplo
 
 Unit tests are provided for core modules to ensure reliability and correctness:
 - `bot/test_strategy.py`: Tests the signal generation logic in `strategy.py`.
-- `bot/test_trading.py`: Tests the trade execution logic in `trading.py`.
 
 Run all tests before deploying or running the bot to catch bugs early:
 ```bash
@@ -112,24 +156,32 @@ python -m unittest discover bot
 ```bash
 traider/
 ├── bot/
-│   ├── strategy.py        # Signal generator & indicators (RSI, MACD, ATR)
+│   ├── strategy.py        # Signal generator & indicators
 │   ├── trading.py         # Executes trades with SL/TP
 │   ├── grid.py            # Grid ladder logic
-│   ├── sentiment_engine.py# Sentiment analysis
-│   ├── test_strategy.py   # Unit tests for strategy
-│   ├── test_trading.py    # Unit tests for trading
+│   ├── sentiment_engine.py# Live sentiment & market safety gate
+│   ├── position_manager.py# Singleton to manage open positions
+│   ├── order_monitor.py   # Background service to track fills and PnL
+│   ├── trade_logger.py    # Handles writing trades to CSV
+│   ├── news_utils.py      # News data processing
+│   ├── rss_utils.py       # RSS feed processing
+│   └── ...
 ├── backtest/
-│   ├── backtest.py        # Backtesting engine
-│   ├── optimize_params.py # Parameter optimization
-│   ├── analyze_trades.py  # Trade analysis (used after optimization)
-├── data_acquisition/      # Scripts for fetching and processing historical data
-│   ├── fetch_historical_data.py
+│   ├── backtest.py        # Enhanced backtesting engine
+│   ├── optimize_params.py # Parameter optimization with Optuna
+│   ├── analyze_trades.py  # Trade analysis script
+│   ├── optimization_results/ # Stores optimization results
+├── data_acquisition/      # Scripts for fetching market data
+│   ├── fetch_historical_data.py # Fetches historical price/sentiment data
+│   ├── fetch_live_sentiment.py  # Fetches live sentiment & Fear & Greed Index
 ├── .env.example           # Example environment variables
-├── .env                   # Your environment variables (ignored by git)
-├── Dockerfile
-├── docker-compose.yml
+├── config.py              # Configuration management
+├── live_trades.csv        # Auto-generated log for live trades
+├── testnet_trades.csv     # Auto-generated log for testnet trades
+├── check_testnet.py       # Utility to check testnet account
 ├── main.py                # Main bot runner
-├── requirements.txt
+├── manual_dashboard.py    # Real-time monitoring dashboard
+├── CHANGELOG.md           # Detailed change history
 └── README.md
 ```
 
@@ -137,9 +189,9 @@ traider/
 
 ## 🔐 Security Notes
 
-- Never commit your `.env` file or API keys.
-- Always use IP whitelisting on the Binance API.
-- Start with small amounts for live testing or use the Binance testnet.
+-   Never commit your `.env` file or API keys.
+-   Always use IP whitelisting on the Binance API.
+-   Start with small amounts for live testing or use the Binance testnet.
 
 ---
 

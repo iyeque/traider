@@ -1,12 +1,12 @@
 import time
-from typing import Callable
+from typing import Callable, Optional
 
 class StrategyScheduler:
     def __init__(self):
         self.strategies = []  # List of (name, function, condition)
         self.active_strategy = None
 
-    def add_strategy(self, name: str, func: Callable, condition: Callable = None):
+    def add_strategy(self, name: str, func: Callable, condition: Optional[Callable] = None):
         self.strategies.append({'name': name, 'func': func, 'condition': condition})
 
     def select_strategy(self, market_context: dict):

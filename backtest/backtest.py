@@ -11,13 +11,16 @@ import os
 from binance.client import Client
 import time
 import logging
-from typing import Optional
+from typing import Optional, Dict, Any, List, Tuple, Union
 
 # Import the sentiment data loader
 from data_acquisition.fetch_sentiment import load_historical_sentiment
 from bot.strategy import get_data, apply_indicators, generate_signal
 from bot.trading import calculate_trade_size
-from bot.exchange_info import get_symbol_info, format_quantity, get_min_notional
+# Import synchronous exchange utility functions for backtesting
+from exchange_utils import get_symbol_info_sync, format_quantity_sync, get_min_notional_sync
+# Import centralized configuration
+from config import config
 
 def load_data(csv_file):
     df = pd.read_csv(csv_file)
@@ -40,34 +43,61 @@ def calculate_dynamic_slippage(quantity: float, price: float, base_slippage_pct:
 
 def strategy_backtest(client: Client,
                       df,
-                      starting_balance: float = 10000,
-                      fee_rate: float = 0.001,
-                      base_slippage_pct: float = 0.0005, # Renamed from slippage_pct
-                      volume_factor: float = 0.000001, # New parameter for dynamic slippage
-                      latency_seconds: int = 0, # New parameter for latency simulation
-                      max_drawdown_percent: float = 20.0, # New parameter for global stop-loss
-                      max_trades: int = 0, # New parameter for trade count limit (0 means no limit)
-                      sentiment_sizing_multiplier: float = 0.0, # New parameter for sentiment-based sizing
-                      atr_period: int = 14,
-                      atr_trend_threshold: float = 0.02,
-                      breakout_rr_ratio: float = 2.5,
-                      grid_levels: int = 4,
-                      grid_step_percent: float = 1.0,
-                      grid_profit_target_percent: float = 1.5,
-                      grid_invalidation_percent: float = 2.0,
-                      risk_per_trade_percent: float = 1.0,
-                      trade_mode: str = 'PERCENTAGE',
-                      fixed_trade_amount_usdt: float = 5.0,
-                      sentiment_threshold_positive: float = 0.1,
-                      sentiment_threshold_negative: float = -0.1,
-                      base_rsi_oversold: float = 30,
-                      base_rsi_overbought: float = 70,
-                      use_bollinger_bands: bool = False, # New parameter for Bollinger Bands
-                      bb_window: int = 20,
-                      bb_window_dev: float = 2.0,
+                      starting_balance: float = None,
+                      fee_rate: float = None,
+                      base_slippage_pct: float = None, # Renamed from slippage_pct
+                      volume_factor: float = None, # New parameter for dynamic slippage
+                      latency_seconds: int = None, # New parameter for latency simulation
+                      max_drawdown_percent: float = None, # New parameter for global stop-loss
+                      max_trades: int = None, # New parameter for trade count limit (0 means no limit)
+                      sentiment_sizing_multiplier: float = None, # New parameter for sentiment-based sizing
+                      atr_period: int = None,
+                      atr_trend_threshold: float = None,
+                      breakout_rr_ratio: float = None,
+                      grid_levels: int = None,
+                      grid_step_percent: float = None,
+                      grid_profit_target_percent: float = None,
+                      grid_invalidation_percent: float = None,
+                      risk_per_trade_percent: float = None,
+                      trade_mode: str = None,
+                      fixed_trade_amount_usdt: float = None,
+                      sentiment_threshold_positive: float = None,
+                      sentiment_threshold_negative: float = None,
+                      base_rsi_oversold: float = None,
+                      base_rsi_overbought: float = None,
+                      use_bollinger_bands: bool = None, # New parameter for Bollinger Bands
+                      bb_window: int = None,
+                      bb_window_dev: float = None,
                       sentiment_csv_file: Optional[str] = None, # New parameter for historical sentiment
-                      symbol: str = "BTCUSDT" # Pass symbol to get exchange info
+                      symbol: str = None # Pass symbol to get exchange info
                      ):
+    # Use centralized configuration with fallbacks to parameters
+    starting_balance = starting_balance or config.get_float('BACKTEST_STARTING_BALANCE', 10000)
+    fee_rate = fee_rate or config.get_float('BACKTEST_FEE_RATE', 0.001)
+    base_slippage_pct = base_slippage_pct or config.get_float('BACKTEST_BASE_SLIPPAGE_PCT', 0.0005)
+    volume_factor = volume_factor or config.get_float('BACKTEST_VOLUME_FACTOR', 0.000001)
+    latency_seconds = latency_seconds or config.get_int('BACKTEST_LATENCY_SECONDS', 0)
+    max_drawdown_percent = max_drawdown_percent or config.get_float('BACKTEST_MAX_DRAWDOWN_PERCENT', 20.0)
+    max_trades = max_trades or config.get_int('BACKTEST_MAX_TRADES', 0)
+    sentiment_sizing_multiplier = sentiment_sizing_multiplier or config.get_float('SENTIMENT_SIZING_MULTIPLIER', 0.0)
+    atr_period = atr_period or config.get_int('ATR_PERIOD', 14)
+    atr_trend_threshold = atr_trend_threshold or config.get_float('ATR_TREND_THRESHOLD', 0.02)
+    breakout_rr_ratio = breakout_rr_ratio or config.get_float('BREAKOUT_RR_RATIO', 2.5)
+    grid_levels = grid_levels or config.get_int('GRID_LEVELS', 4)
+    grid_step_percent = grid_step_percent or config.get_float('GRID_STEP_PERCENT', 1.0)
+    grid_profit_target_percent = grid_profit_target_percent or config.get_float('GRID_PROFIT_TARGET_PERCENT', 1.5)
+    grid_invalidation_percent = grid_invalidation_percent or config.get_float('GRID_INVALIDATION_PERCENT', 2.0)
+    risk_per_trade_percent = risk_per_trade_percent or config.get_float('RISK_PER_TRADE_PERCENT', 1.0)
+    trade_mode = trade_mode or config.get('TRADE_MODE', 'PERCENTAGE')
+    fixed_trade_amount_usdt = fixed_trade_amount_usdt or config.get_float('FIXED_TRADE_AMOUNT_USDT', 5.0)
+    sentiment_threshold_positive = sentiment_threshold_positive or config.get_float('SENTIMENT_THRESHOLD_POSITIVE', 0.1)
+    sentiment_threshold_negative = sentiment_threshold_negative or config.get_float('SENTIMENT_THRESHOLD_NEGATIVE', -0.1)
+    base_rsi_oversold = base_rsi_oversold or config.get_float('BASE_RSI_OVERSOLD', 30)
+    base_rsi_overbought = base_rsi_overbought or config.get_float('BASE_RSI_OVERBOUGHT', 70)
+    use_bollinger_bands = use_bollinger_bands if use_bollinger_bands is not None else config.get_bool('USE_BOLLINGER_BANDS', False)
+    bb_window = bb_window or config.get_int('BB_WINDOW', 20)
+    bb_window_dev = bb_window_dev or config.get_float('BB_WINDOW_DEV', 2.0)
+    symbol = symbol or config.get('TRADE_SYMBOL', 'BTCUSDT')
     balance = starting_balance
     peak_balance = starting_balance
     trade_log = []
@@ -85,7 +115,7 @@ def strategy_backtest(client: Client,
     # For grid, 'open_orders' could track individual limit orders
     current_position = {'quantity': 0, 'entry_price': 0, 'strategy': None, 'sl_price': None, 'tp_price': None, 'invalidation_price': None, 'open_orders': []}
 
-    min_notional = get_min_notional(client, symbol)
+    min_notional = get_min_notional_sync(client, symbol)
 
     # Load historical sentiment data if provided
     sentiment_df = None
@@ -123,7 +153,7 @@ def strategy_backtest(client: Client,
                 exit_price = price * (1 - slippage_amount) # Apply slippage on final exit
                 
                 # Apply step size and min notional checks for final exit
-                exit_quantity = format_quantity(client, symbol, current_position['quantity'])
+                exit_quantity = format_quantity_sync(client, symbol, current_position['quantity'])
                 if float(exit_quantity) * exit_price < min_notional:
                     logging.warning(f"Skipping final exit sell due to min notional at {timestamp}. Qty: {exit_quantity}, Price: {exit_price}")
                     # If it can't meet min notional, assume position is stuck or closed at 0 for backtest simplicity
@@ -163,7 +193,7 @@ def strategy_backtest(client: Client,
                 exit_price = price * (1 - slippage_amount) # Apply slippage on final exit
                 
                 # Apply step size and min notional checks for final exit
-                exit_quantity = format_quantity(client, symbol, current_position['quantity'])
+                exit_quantity = format_quantity_sync(client, symbol, current_position['quantity'])
                 if float(exit_quantity) * exit_price < min_notional:
                     logging.warning(f"Skipping final exit sell due to min notional at {timestamp}. Qty: {exit_quantity}, Price: {exit_price}")
                     balance = 0
@@ -242,7 +272,7 @@ def strategy_backtest(client: Client,
                     exit_price = price * (1 - slippage_amount) # Apply slippage on exit
                     
                     # Apply step size and min notional checks for exit
-                    exit_quantity = format_quantity(client, symbol, current_position['quantity'])
+                    exit_quantity = format_quantity_sync(client, symbol, current_position['quantity'])
                     if float(exit_quantity) * exit_price < min_notional:
                         logging.warning(f"Skipping grid invalidation sell due to min notional at {timestamp}. Qty: {exit_quantity}, Price: {exit_price}")
                         # In a real scenario, you might be stuck or forced to market sell at any price.
@@ -273,7 +303,7 @@ def strategy_backtest(client: Client,
                 exit_price = current_position['sl_price'] * (1 - slippage_amount) # Simulate exit at SL with slippage
                 
                 # Apply step size and min notional checks for exit
-                exit_quantity = format_quantity(client, symbol, current_position['quantity'])
+                exit_quantity = format_quantity_sync(client, symbol, current_position['quantity'])
                 if float(exit_quantity) * exit_price < min_notional:
                     logging.warning(f"Skipping breakout SL sell due to min notional at {timestamp}. Qty: {exit_quantity}, Price: {exit_price}")
                     current_position = {'quantity': 0, 'entry_price': 0, 'strategy': None, 'sl_price': None, 'tp_price': None, 'invalidation_price': None, 'open_orders': []}
@@ -299,7 +329,7 @@ def strategy_backtest(client: Client,
                 exit_price = current_position['tp_price'] * (1 - slippage_amount) # Simulate exit at TP with slippage
                 
                 # Apply step size and min notional checks for exit
-                exit_quantity = format_quantity(client, symbol, current_position['quantity'])
+                exit_quantity = format_quantity_sync(client, symbol, current_position['quantity'])
                 if float(exit_quantity) * exit_price < min_notional:
                     logging.warning(f"Skipping breakout TP sell due to min notional at {timestamp}. Qty: {exit_quantity}, Price: {exit_price}")
                     current_position = {'quantity': 0, 'entry_price': 0, 'strategy': None, 'sl_price': None, 'tp_price': None, 'invalidation_price': None, 'open_orders': []}
@@ -359,8 +389,8 @@ def strategy_backtest(client: Client,
                     if pd.isna(total_quantity) or total_quantity <= 0:
                         logging.warning(f"Skipping grid buy due to invalid total_quantity (NaN or <= 0) at {timestamp}. Calculated: {total_quantity}")
                         continue
-                    total_quantity = format_quantity(client, symbol, total_quantity)
-                    total_quantity = float(total_quantity)
+                    # Format quantity using synchronous function
+                    total_quantity = format_quantity_sync(client, symbol, total_quantity)
                     if total_quantity * avg_entry_price < min_notional:
                         logging.warning(f"Skipping grid buy due to min notional at {timestamp}. Qty: {total_quantity}, Price: {avg_entry_price}")
                         continue
@@ -420,7 +450,7 @@ def strategy_backtest(client: Client,
                     quantity = amount_to_risk / entry_price # Simple quantity calculation for backtest
                     
                     # Apply step size and min notional checks for entry
-                    quantity = format_quantity(client, symbol, quantity)
+                    quantity = format_quantity_sync(client, symbol, quantity)
                     if float(quantity) * entry_price < min_notional:
                         logging.warning(f"Skipping breakout buy due to min notional at {timestamp}. Qty: {quantity}, Price: {entry_price}")
                         continue
@@ -463,7 +493,7 @@ def strategy_backtest(client: Client,
                     exit_price = tp_price_for_grid * (1 - slippage_amount) # Simulate exit at TP with slippage
                     
                     # Apply step size and min notional checks for exit
-                    exit_quantity = format_quantity(client, symbol, current_position['quantity'])
+                    exit_quantity = format_quantity_sync(client, symbol, current_position['quantity'])
                     if float(exit_quantity) * exit_price < min_notional:
                         logging.warning(f"Skipping grid TP sell due to min notional at {timestamp}. Qty: {exit_quantity}, Price: {exit_price}")
                         current_position = {'quantity': 0, 'entry_price': 0, 'strategy': None, 'sl_price': None, 'tp_price': None, 'invalidation_price': None, 'open_orders': []}
@@ -490,7 +520,7 @@ def strategy_backtest(client: Client,
         final_price = df['close'].iloc[-1] * (1 - slippage_amount) # Apply slippage on final exit
         
         # Apply step size and min notional checks for final exit
-        exit_quantity = format_quantity(client, symbol, current_position['quantity'])
+        exit_quantity = format_quantity_sync(client, symbol, current_position['quantity'])
         if float(exit_quantity) * final_price < min_notional:
             logging.warning(f"Skipping final exit sell due to min notional at {df['timestamp'].iloc[-1]}. Qty: {exit_quantity}, Price: {final_price}")
             # If it can't meet min notional, assume position is stuck or closed at 0 for backtest simplicity

@@ -2,125 +2,128 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 import logging
+import argparse
+import os
+import glob
 
 def analyze_trades(trades_df: pd.DataFrame):
     """
-    Performs detailed analysis on a DataFrame of trades.
-    Assumes trades_df has at least 'type', 'price', 'quantity', 'balance', 'timestamp', and 'profit_loss' columns.
-    'type' should indicate buy/sell and strategy (e.g., 'buy(breakout)', 'sell(breakout_sl)', 'sell(grid_tp)').
+    Performs detailed analysis on a DataFrame of trades from the new logger format.
+    It analyzes trades with a status of 'CLOSED' to calculate profitability.
     """
     if trades_df.empty:
-        logging.info("No trades to analyze.")
+        logging.info("Trade log is empty. Nothing to analyze.")
         return
 
-    # A "trade" is defined by an exit transaction (sell, sl, tp, invalidation, etc.)
-    # We filter for these exit transactions to get the true PnL for each completed trade cycle.
-    exit_trades_df = trades_df[trades_df['type'].str.contains('sell|exit|invalidation', regex=True)].copy()
+    # Support two formats:
+    # 1) Live log format: columns include ['status', 'pnl'] (from OrderMonitor)
+    # 2) Backtest format: columns include ['type', 'profit_loss'] (from backtest)
 
-    if exit_trades_df.empty:
-        logging.info("No completed trades (exits) to analyze.")
+    if 'status' in trades_df.columns and 'pnl' in trades_df.columns:
+        # A completed trade cycle is marked with the status 'CLOSED'
+        closed_trades_df = trades_df[trades_df['status'] == 'CLOSED'].copy()
+        if closed_trades_df.empty:
+            logging.info("No closed trades found to analyze. (Waiting for positions to be closed). ")
+            return
+        pnl_series = pd.to_numeric(closed_trades_df['pnl'], errors='coerce').fillna(0)
+    elif 'type' in trades_df.columns and 'profit_loss' in trades_df.columns:
+        # Consider sells/exits as closed trades in backtest output
+        type_series = trades_df['type'].astype(str)
+        closed_mask = type_series.str.contains('sell|exit|invalidation', case=False, regex=True)
+        closed_trades_df = trades_df[closed_mask].copy()
+        if closed_trades_df.empty:
+            logging.info("No sell/exit trades found to analyze in backtest output.")
+            return
+        pnl_series = pd.to_numeric(closed_trades_df['profit_loss'], errors='coerce').fillna(0)
+        # Normalize for downstream usage
+        closed_trades_df['pnl'] = pnl_series
+    else:
+        logging.info("Unrecognized trade log format. Expected columns ['status','pnl'] or ['type','profit_loss'].")
         return
 
-    # Use the pre-calculated 'profit_loss' column directly from the exit trades
-    exit_trades_df['pnl'] = exit_trades_df['profit_loss']
+    winning_trades_pnl = pnl_series[pnl_series > 0]
+    losing_trades_pnl = pnl_series[pnl_series < 0]
 
-    # Identify winning and losing trades based on PnL
-    winning_trades_pnl = exit_trades_df[exit_trades_df['pnl'] > 0]['pnl']
-    losing_trades_pnl = exit_trades_df[exit_trades_df['pnl'] < 0]['pnl']
-
-    total_trades = len(exit_trades_df)
+    total_trades = len(pnl_series)
     winning_trades_count = len(winning_trades_pnl)
     losing_trades_count = len(losing_trades_pnl)
 
-    # Basic Metrics
+    # --- Calculate Metrics ---
     win_rate = winning_trades_count / total_trades if total_trades > 0 else 0
     avg_win = winning_trades_pnl.mean() if winning_trades_count > 0 else 0
     avg_loss = losing_trades_pnl.mean() if losing_trades_count > 0 else 0
     gross_profit = winning_trades_pnl.sum()
     gross_loss = losing_trades_pnl.sum()
-    profit_factor = abs(gross_profit / gross_loss) if gross_loss < 0 else float('inf')
+    profit_factor = abs(gross_profit / gross_loss) if gross_loss != 0 else float('inf')
+    net_profit = gross_profit + gross_loss
 
-    # Trade Streaks
-    # This is a simplified streak calculation based on sequential PnL signs.
-    # A more complex approach would track individual trade outcomes.
-    streaks = []
-    current_streak = 0
-    current_streak_type = None # 'win' or 'loss'
-
-    for pnl in exit_trades_df['pnl']:
-        if pnl > 0:
-            if current_streak_type == 'win':
-                current_streak += 1
-            else:
-                if current_streak_type is not None: streaks.append((current_streak_type, current_streak))
-                current_streak = 1
-                current_streak_type = 'win'
-        elif pnl < 0:
-            if current_streak_type == 'loss':
-                current_streak -= 1 # Use negative for loss streak
-            else:
-                if current_streak_type is not None: streaks.append((current_streak_type, current_streak))
-                current_streak = -1
-                current_streak_type = 'loss'
-        else:
-            if current_streak_type is not None: streaks.append((current_streak_type, current_streak))
-            current_streak = 0
-            current_streak_type = None
-    if current_streak_type is not None: streaks.append((current_streak_type, current_streak))
-
-    longest_winning_streak = max([s[1] for s in streaks if s[0] == 'win'] or [0])
-    longest_losing_streak = min([s[1] for s in streaks if s[0] == 'loss'] or [0]) * -1 # Convert to positive
-
-    # Largest Win/Loss
     largest_win = winning_trades_pnl.max() if winning_trades_count > 0 else 0
     largest_loss = losing_trades_pnl.min() if losing_trades_count > 0 else 0
 
-    logging.info("\n--- Detailed Trade Analysis ---")
-    logging.info(f"Total Trades: {total_trades}")
+    # --- Print Analysis Summary ---
+    logging.info("\n--- Trade Analysis Summary ---")
+    logging.info(f"Total Closed Trades: {total_trades}")
+    logging.info(f"Net Profit: {net_profit:.2f}")
+    logging.info(f"Profit Factor: {profit_factor:.2f}")
+    logging.info("---------------------------------")
     logging.info(f"Winning Trades: {winning_trades_count}")
     logging.info(f"Losing Trades: {losing_trades_count}")
     logging.info(f"Win Rate: {win_rate:.2%}")
-    logging.info(f"Gross Profit: {gross_profit:.2f}")
-    logging.info(f"Gross Loss: {gross_loss:.2f}")
-    logging.info(f"Profit Factor: {profit_factor:.2f}")
+    logging.info("---------------------------------")
     logging.info(f"Average Win: {avg_win:.2f}")
     logging.info(f"Average Loss: {avg_loss:.2f}")
     logging.info(f"Largest Win: {largest_win:.2f}")
     logging.info(f"Largest Loss: {largest_loss:.2f}")
-    logging.info(f"Longest Winning Streak: {longest_winning_streak}")
-    logging.info(f"Longest Losing Streak: {longest_losing_streak}")
+    logging.info("---------------------------------")
 
-    # Plot PnL Distribution
-    if not exit_trades_df.empty:
+    # --- Plot PnL Distribution ---
+    if not closed_trades_df.empty:
         plt.figure(figsize=(10, 6))
-        plt.hist(exit_trades_df['pnl'], bins=20, edgecolor='black')
-        plt.title("Distribution of Trade PnL")
-        plt.xlabel("Profit/Loss (USDT)")
-        plt.ylabel("Frequency")
-        plt.grid(True)
+        plt.hist(closed_trades_df['pnl'], bins=30, edgecolor='black', color='skyblue')
+        plt.title("Distribution of Trade PnL", fontsize=16)
+        plt.xlabel("Profit / Loss (USDT)", fontsize=12)
+        plt.ylabel("Number of Trades", fontsize=12)
+        plt.grid(axis='y', alpha=0.75)
+        plt.axvline(x=0, color='r', linestyle='--')
+        logging.info("Displaying PnL distribution plot...")
         plt.show()
 
 if __name__ == "__main__":
-    # This script is intended to be called by optimize_params.py after a study is complete.
-    # When run directly, it will automatically find and analyze the LATEST trade log CSV.
-    import os
-    import glob
+    logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    parser = argparse.ArgumentParser(description='Analyze a trade log file from the trading bot.')
+    parser.add_argument(
+        'filepath',
+        type=str,
+        nargs='?',
+        default=None,
+        help='Optional: Path to the trade log CSV file (e.g., live_trades.csv). If not provided, it looks for the latest backtest result.'
+    )
+
+    args = parser.parse_args()
 
     try:
-        results_dir = os.path.join("backtest", "optimization_results")
-        # Find the latest CSV file in the directory based on modification time
-        latest_file = max(glob.glob(os.path.join(results_dir, '*.csv')), key=os.path.getctime)
+        filepath_to_analyze = args.filepath
         
-        if latest_file:
-            logging.info(f"Found latest trade log: {latest_file}")
-            trades_df = pd.read_csv(latest_file)
-            analyze_trades(trades_df)
-        else:
-            logging.error(f"No trade log files found in {results_dir}")
+        # If no filepath is provided, default to old behavior for back-compatibility
+        if filepath_to_analyze is None:
+            logging.info("No file specified. Looking for latest backtest result...")
+            results_dir = os.path.join("backtest", "optimization_results")
+            if not os.path.exists(results_dir):
+                logging.error(f"Default directory not found: {results_dir}")
+                exit()
+            list_of_files = glob.glob(os.path.join(results_dir, '*.csv'))
+            if not list_of_files:
+                logging.error(f"No trade log files found in {results_dir}")
+                exit()
+            filepath_to_analyze = max(list_of_files, key=os.path.getctime)
 
-    except ValueError:
-        logging.error(f"No trade log files found in {os.path.join('backtest', 'optimization_results')}")
+        if not os.path.exists(filepath_to_analyze):
+            logging.error(f"File not found: {filepath_to_analyze}")
+        else:
+            logging.info(f"Analyzing trade log: {filepath_to_analyze}")
+            trades_df = pd.read_csv(filepath_to_analyze)
+            analyze_trades(trades_df)
+
     except Exception as e:
-        logging.error(f"An error occurred: {e}")
+        logging.error(f"An error occurred during analysis: {e}", exc_info=True)

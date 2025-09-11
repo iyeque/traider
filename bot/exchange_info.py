@@ -1,18 +1,18 @@
 import logging
 import math
-from binance.client import Client
+from binance import AsyncClient
 from functools import lru_cache
 from math import floor
 
-def get_symbol_info(client: Client, symbol: str):
+async def get_symbol_info(client: AsyncClient, symbol: str):
     try:
-        return client.get_symbol_info(symbol)
+        return await client.get_symbol_info(symbol)
     except Exception as e:
         logging.error(f"Could not retrieve symbol info for {symbol}: {e}")
         return None
 
-def get_min_notional(client: Client, symbol: str) -> float:
-    info = get_symbol_info(client, symbol)
+async def get_min_notional(client: AsyncClient, symbol: str) -> float:
+    info = await get_symbol_info(client, symbol)
     if not info:
         return 0.0
     
@@ -27,8 +27,8 @@ def get_min_notional(client: Client, symbol: str) -> float:
         
     return 0.0
 
-def format_quantity(client: Client, symbol: str, quantity: float) -> str:
-    info = get_symbol_info(client, symbol)
+async def format_quantity(client: AsyncClient, symbol: str, quantity: float) -> str:
+    info = await get_symbol_info(client, symbol)
     if not info:
         return f"{quantity:.8f}"
 

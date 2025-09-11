@@ -1,8 +1,143 @@
 version: '3.8'
 services:
-  traider-bot:
+  traider-bot-bnb:
     build: .
-    container_name: traider-bot
+    container_name: traider-bot-bnb
     env_file:
       - .env
+    volumes:
+      - ./:/app
+      - ./logs:/app/logs
+    environment:
+      # --- Fully-defined parameters for BNBUSDT ---
+      - TRADE_SYMBOL=BNBUSDT
+      - INTERVAL=15m
+      - TRADE_INTERVAL_SECONDS=900
+      - RISK_PER_TRADE_PERCENT=10.0
+      - TRADE_MODE=PERCENTAGE
+      - FIXED_TRADE_AMOUNT_USDT=5.0
+      - SENTIMENT_SIZING_MULTIPLIER=0.75
+      - ATR_PERIOD=10
+      - ATR_TREND_THRESHOLD=0.02
+      - BREAKOUT_RR_RATIO=3.0
+      - GRID_LEVELS=3
+      - GRID_STEP_PERCENT=1.0
+      - GRID_PROFIT_TARGET_PERCENT=2.0
+      - GRID_INVALIDATION_PERCENT=2.0
+      - MIN_FEAR_GREED=30
+      - SENTIMENT_THRESHOLD_POSITIVE=0.0
+      - SENTIMENT_THRESHOLD_NEGATIVE=-0.2
+      - BASE_RSI_OVERSOLD=29
+      - BASE_RSI_OVERBOUGHT=61
+      - USE_BOLLINGER_BANDS=True
+      - BB_WINDOW=21
+      - BB_WINDOW_DEV=2.0
+      - FEAR_GREED_THRESHOLD=50
+    restart: unless-stopped
+
+  traider-bot-btc:
+    build: .
+    container_name: traider-bot-btc
+    env_file:
+      - .env
+    ports:
+      - "8181:8181"
+    volumes:
+      - ./:/app
+      - ./logs:/app/logs
+    environment:
+      # --- Fully-defined parameters for BTCUSDT (Optimized) ---
+      - TRADE_SYMBOL=BTCUSDT
+      - INTERVAL=15m
+      - TRADE_INTERVAL_SECONDS=900
+      - RISK_PER_TRADE_PERCENT=10.0
+      - TRADE_MODE=PERCENTAGE
+      - FIXED_TRADE_AMOUNT_USDT=5.0
+      - SENTIMENT_SIZING_MULTIPLIER=1.0
+      - ATR_PERIOD=20
+      - ATR_TREND_THRESHOLD=0.03
+      - BREAKOUT_RR_RATIO=2.0
+      - GRID_LEVELS=3
+      - GRID_STEP_PERCENT=0.5
+      - GRID_PROFIT_TARGET_PERCENT=1.0
+      - GRID_INVALIDATION_PERCENT=1.5
+      - MIN_FEAR_GREED=30
+      - SENTIMENT_THRESHOLD_POSITIVE=0.1
+      - SENTIMENT_THRESHOLD_NEGATIVE=-0.1
+      - BASE_RSI_OVERSOLD=38
+      - BASE_RSI_OVERBOUGHT=77
+      - USE_BOLLINGER_BANDS=False
+      - BB_WINDOW=20
+      - BB_WINDOW_DEV=2.0
+      - FEAR_GREED_THRESHOLD=50
+    restart: unless-stopped
+
+  traider-bot-eth:
+    build: .
+    container_name: traider-bot-eth
+    env_file:
+      - .env
+    volumes:
+      - ./:/app
+      - ./logs:/app/logs
+    environment:
+      # --- Fully-defined parameters for ETHUSDT ---
+      - TRADE_SYMBOL=ETHUSDT
+      - INTERVAL=15m
+      - TRADE_INTERVAL_SECONDS=900
+      - RISK_PER_TRADE_PERCENT=10.0
+      - TRADE_MODE=PERCENTAGE
+      - FIXED_TRADE_AMOUNT_USDT=5.0
+      - SENTIMENT_SIZING_MULTIPLIER=1.0
+      - ATR_PERIOD=13
+      - ATR_TREND_THRESHOLD=0.02
+      - BREAKOUT_RR_RATIO=2.5
+      - GRID_LEVELS=3
+      - GRID_STEP_PERCENT=0.5
+      - GRID_PROFIT_TARGET_PERCENT=1.5
+      - GRID_INVALIDATION_PERCENT=2.5
+      - MIN_FEAR_GREED=30
+      - SENTIMENT_THRESHOLD_POSITIVE=0.0
+      - SENTIMENT_THRESHOLD_NEGATIVE=-0.1
+      - BASE_RSI_OVERSOLD=25
+      - BASE_RSI_OVERBOUGHT=62
+      - USE_BOLLINGER_BANDS=True
+      - BB_WINDOW=18
+      - BB_WINDOW_DEV=2.5
+      - FEAR_GREED_THRESHOLD=50
+    restart: unless-stopped
+
+  traider-bot-sol:
+    build: .
+    container_name: traider-bot-sol
+    env_file:
+      - .env
+    volumes:
+      - ./:/app
+      - ./logs:/app/logs
+    environment:
+      # --- Fully-defined parameters for SOLUSDT (Optimized) ---
+      - TRADE_SYMBOL=SOLUSDT
+      - INTERVAL=15m
+      - TRADE_INTERVAL_SECONDS=900
+      - RISK_PER_TRADE_PERCENT=10.0
+      - TRADE_MODE=PERCENTAGE
+      - FIXED_TRADE_AMOUNT_USDT=5.0
+      - SENTIMENT_SIZING_MULTIPLIER=1.0
+      - ATR_PERIOD=17
+      - ATR_TREND_THRESHOLD=0.02
+      - BREAKOUT_RR_RATIO=3.0
+      - GRID_LEVELS=3
+      - GRID_STEP_PERCENT=1.0
+      - GRID_PROFIT_TARGET_PERCENT=1.0
+      - GRID_INVALIDATION_PERCENT=1.5
+      - MIN_FEAR_GREED=30
+      - SENTIMENT_THRESHOLD_POSITIVE=0.2
+      - SENTIMENT_THRESHOLD_NEGATIVE=-0.2
+      - BASE_RSI_OVERSOLD=20
+      - BASE_RSI_OVERBOUGHT=61
+      - USE_BOLLINGER_BANDS=True
+      - BB_WINDOW=19
+      - BB_WINDOW_DEV=2.5
+      - FEAR_GREED_THRESHOLD=50
     restart: unless-stopped

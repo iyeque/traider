@@ -36,7 +36,9 @@ def fetch_cryptopanic_news(api_key: str, page: int = 1, filter_currency: str = '
         logging.error(f"Error fetching CryptoPanic news: {e}")
         return []
 
-def fetch_newsapi_news(api_key: str, query: str = 'cryptocurrency', language: str = 'en', from_date: str = None, to_date: str = None) -> list:
+from typing import Optional
+
+def fetch_newsapi_news(api_key: str, query: str = 'cryptocurrency', language: str = 'en', from_date: Optional[str] = None, to_date: Optional[str] = None) -> list:
     """
     Fetches news from NewsAPI.
     Note: Free tier usually limits historical data to 30 days.
@@ -47,9 +49,12 @@ def fetch_newsapi_news(api_key: str, query: str = 'cryptocurrency', language: st
         'language': language,
         'apiKey': api_key,
         'sortBy': 'relevancy',
-        'from': from_date,
-        'to': to_date
     }
+    if from_date:
+        params['from'] = from_date
+    if to_date:
+        params['to'] = to_date
+
     try:
         response = requests.get(url, params=params)
         response.raise_for_status() # Raise an exception for HTTP errors

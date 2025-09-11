@@ -2,12 +2,13 @@ import threading
 from typing import List, Dict, Any
 
 class LiveTradingStats:
-    def get_sentiment(self):
+    def get_sentiment(self) -> float:
         """
         Returns the last sentiment score set by set_sentiment.
+        If no sentiment has been set, returns a default value of 0.0.
         """
         with self._lock:
-            return self.last_sentiment
+            return self.last_sentiment if self.last_sentiment is not None else 0.0
     _instance = None
     _lock = threading.Lock()
 

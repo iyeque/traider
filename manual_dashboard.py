@@ -1,6 +1,7 @@
 import asyncio
 from aiohttp import web
 import json
+import logging # Add this line
 from bot.trading_stats import LiveTradingStats
 
 class TradingDashboard:
@@ -102,16 +103,44 @@ class TradingDashboard:
         ws = web.WebSocketResponse()
         await ws.prepare(request)
         stats = LiveTradingStats()
-        async def send_updates():
+        
+        # Create a task for sending updates
+        send_updates_task = asyncio.create_task(self._send_updates(ws, stats))
+
+        try:
+            async for msg in ws:
+                if msg.type == web.WSMsgType.TEXT:
+                    # Handle incoming messages if any
+                    pass
+                elif msg.type == web.WSMsgType.ERROR:
+                    logging.error('WebSocket connection closed with exception %s' % ws.exception())
+                elif msg.type == web.WSMsgType.CLOSE:
+                    logging.info('WebSocket connection closed.')
+                    break
+        finally:
+            # Ensure the send_updates_task is cancelled when the WebSocket connection is closed
+            send_updates_task.cancel()
+            try:
+                await send_updates_task
+            except asyncio.CancelledError:
+                pass # Task was cancelled as expected
+        return ws
+
+    async def _send_updates(self, ws, stats):
+        try:
             while True:
                 await ws.send_str(json.dumps(stats.get_stats()))
                 await asyncio.sleep(1)
-        asyncio.create_task(send_updates())
-        async for msg in ws:
-            if msg.type == web.WSMsgType.CLOSE:
-                break
-        return ws
+        except asyncio.CancelledError:
+            logging.info("send_updates task cancelled.")
+        except Exception as e:
+            logging.error(f"Error in send_updates: {e}")
 
 if __name__ == '__main__':
     dashboard = TradingDashboard()
-    web.run_app(dashboard.app, port=8080)
+    try:
+        web.run_app(dashboard.app, port=8181)
+    except KeyboardInterrupt:
+        logging.info("Dashboard stopped by user (Ctrl+C).")
+    finally:
+        pass

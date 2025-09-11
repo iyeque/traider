@@ -1,4 +1,4 @@
-from binance.client import Client
+from binance import AsyncClient
 import pandas as pd
 import logging
 from typing import Optional
@@ -8,8 +8,8 @@ from binance.exceptions import BinanceAPIException # Import BinanceAPIException
 from ta.volatility import BollingerBands # Import BollingerBands
 
 @retry(stop=stop_after_attempt(7), wait=wait_exponential(multiplier=1, min=4, max=10), retry=retry_if_exception_type((requests.exceptions.ConnectionError, BinanceAPIException)))
-def get_data(client: Client, symbol: str, interval: str, limit: int = 100) -> pd.DataFrame:
-    klines = client.get_klines(symbol=symbol, interval=interval, limit=limit)
+async def get_data(client: AsyncClient, symbol: str, interval: str, limit: int = 100) -> pd.DataFrame:
+    klines = await client.get_klines(symbol=symbol, interval=interval, limit=limit)
     df = pd.DataFrame(klines, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'quote_asset_volume', 'number_of_trades', 'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'])
     df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
     df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
@@ -18,7 +18,7 @@ def get_data(client: Client, symbol: str, interval: str, limit: int = 100) -> pd
     return df
 
 def calculate_rsi(df: pd.DataFrame, period: int = 14) -> pd.Series:
-    delta = df['close'].diff()
+    delta = df['close'].astype(float).diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
     rs = gain / loss
@@ -43,7 +43,7 @@ def calculate_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
     return atr
 
 def calculate_bollinger_bands(df: pd.DataFrame, window: int = 20, window_dev: float = 2.0) -> pd.DataFrame:
-    bb_indicator = BollingerBands(close=df["close"], window=window, window_dev=window_dev)
+    bb_indicator = BollingerBands(close=df["close"], window=window, window_dev=int(window_dev))
     df['bb_bbm'] = bb_indicator.bollinger_mavg()
     df['bb_bbh'] = bb_indicator.bollinger_hband()
     df['bb_bbl'] = bb_indicator.bollinger_lband()

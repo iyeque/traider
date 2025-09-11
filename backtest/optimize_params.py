@@ -2,19 +2,19 @@ import pandas as pd
 import os
 import sys
 import logging
-import optuna  # Import Optuna
-from analyze_trades import analyze_trades
+import optuna
 
-# Add the parent directory to the sys.path to allow importing backtest.py
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-import backtest
+# Add project root to the path to allow importing bot modules
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+from analyze_trades import analyze_trades
+from backtest import strategy_backtest, load_data
 from binance.client import Client
 
 # Configure logging for optimization script
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-
-def objective(trial, df, historical_sentiment_csv, client):  # Pass data as arguments
+def objective(trial, df, historical_sentiment_csv, client):
     """Objective function for Optuna to optimize."""
     # --- Define Parameter Search Space using Optuna ---
     atr_period = trial.suggest_int('atr_period', 10, 20)
@@ -39,8 +39,7 @@ def objective(trial, df, historical_sentiment_csv, client):  # Pass data as argu
     bb_window_dev = trial.suggest_float('bb_window_dev', 1.5, 2.5, step=0.5) if use_bollinger_bands else 2.0
 
     try:
-        # Run the backtest with the suggested parameters
-        trades, final_balance, metrics = backtest.strategy_backtest(
+        trades, final_balance, metrics = strategy_backtest(
             client,
             df,
             starting_balance=10000,
@@ -76,37 +75,32 @@ def objective(trial, df, historical_sentiment_csv, client):  # Pass data as argu
         logging.error(f"Error during Optuna trial {trial.number} with params {trial.params}: {e}")
         raise
 
-
 from dotenv import load_dotenv
 load_dotenv()
 
 if __name__ == "__main__":
-    # Create Binance client
     api_key = os.getenv("BINANCE_API_KEY")
     api_secret = os.getenv("BINANCE_API_SECRET")
     client = Client(api_key, api_secret)
-    # --- Load Data Once ---
+    
     symbol = os.getenv("TRADE_SYMBOL", "BTCUSDT")
     interval = "1h"
     csv_file = f"backtest/{symbol}_{interval}.csv"
 
     if not os.path.exists(csv_file):
         logging.error(f"Historical data not found at {csv_file}. Please run backtest.py first to generate it.")
-        sys.exit(1)  # Exit if data is missing
+        sys.exit(1)
 
-    df = backtest.load_data(csv_file)
+    df = load_data(csv_file)
 
     historical_sentiment_csv = "data_acquisition/historical_sentiment.csv"
     if not os.path.exists(historical_sentiment_csv):
         logging.warning(f"Historical sentiment data not found at {historical_sentiment_csv}. Sentiment will be neutral.")
 
-    # --- Run Optimization ---
     study = optuna.create_study(direction='maximize')
     logging.info("Starting Optuna optimization...")
-    # Use a lambda function to pass additional arguments to the objective
     study.optimize(lambda trial: objective(trial, df, historical_sentiment_csv, client), n_trials=100)
 
-    # --- Print Best Results ---
     logging.info("\n--- Optuna Optimization Finished ---")
     logging.info("Best trial parameters:")
     best_params = study.best_trial.params
@@ -114,10 +108,9 @@ if __name__ == "__main__":
         logging.info(f"  {key}: {value}")
     logging.info(f"Best final balance: ${study.best_value:.2f}")
 
-    # --- Re-run and Analyze the Best Trial ---
     logging.info("\n--- Re-running backtest with best parameters to generate analysis ---")
 
-    best_trades_df, final_balance, metrics = backtest.strategy_backtest(
+    best_trades_df, final_balance, metrics = strategy_backtest(
         client,
         df,
         starting_balance=10000,
@@ -130,13 +123,11 @@ if __name__ == "__main__":
         **best_params
     )
 
-    # --- Save the Best Trades ---
     output_dir = "backtest/optimization_results"
     os.makedirs(output_dir, exist_ok=True)
     filename = os.path.join(output_dir, f"best_trades_balance_{final_balance:.2f}.csv")
     best_trades_df.to_csv(filename, index=False)
     logging.info(f"Saved trades from best trial to {filename}")
 
-    # --- Perform Detailed Analysis ---
     logging.info("\n--- Analysis of Best Trial ---")
     analyze_trades(best_trades_df)
