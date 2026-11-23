@@ -1,0 +1,166 @@
+{
+  "generated_at": "2026-11-23T18:43:15.952792+00:00",
+  "trials_per_symbol": 8,
+  "window": [
+    "2025-06-28T00:00:00+00:00",
+    "2025-07-14T22:00:00+00:00"
+  ],
+  "candles_per_symbol": 407,
+  "source": "backtest/run_per_symbol.py -> backtest/optimize_params.py search space + strategy_backtest",
+  "sentiment": "data_acquisition/historical_sentiment.csv (full overlap with window)",
+  "caveat": "First pass: 8 Optuna trials per symbol on ~17 days of 2025 hourly data, in-sample only (no walk-forward). Gains are noise-level; re-tune with more trials/out-of-sample before trusting.",
+  "symbols": {
+    "BTCUSDT": {
+      "params": {
+        "atr_period": 11,
+        "atr_trend_threshold": 0.03,
+        "breakout_rr_ratio": 2.5,
+        "grid_levels": 3,
+        "grid_step_percent": 1.0,
+        "grid_profit_target_percent": 1.5,
+        "grid_invalidation_percent": 2.5,
+        "risk_per_trade_percent": 7.0,
+        "sentiment_threshold_positive": 0.1,
+        "sentiment_threshold_negative": -0.2,
+        "volume_factor": 2.6160602218240214e-06,
+        "latency_seconds": 300,
+        "max_drawdown_percent": 30.0,
+        "max_trades": 100,
+        "sentiment_sizing_multiplier": 0.25,
+        "base_rsi_oversold": 29,
+        "base_rsi_overbought": 73,
+        "use_bollinger_bands": true,
+        "bb_window": 19,
+        "bb_window_dev": 1.5
+      },
+      "final_balance": 10002.657251975495,
+      "trades": 2,
+      "metrics": {
+        "profit_factor": "Infinity",
+        "max_drawdown": 2.131678739667132,
+        "win_rate": 1.0,
+        "avg_win": 2.8702068945430437,
+        "avg_loss": 0.0
+      },
+      "candles": 407,
+      "window": [
+        "2025-06-28 00:00:00+00:00",
+        "2025-07-14 22:00:00+00:00"
+      ]
+    },
+    "ETHUSDT": {
+      "params": {
+        "atr_period": 17,
+        "atr_trend_threshold": 0.01,
+        "breakout_rr_ratio": 2.5,
+        "grid_levels": 4,
+        "grid_step_percent": 0.5,
+        "grid_profit_target_percent": 1.5,
+        "grid_invalidation_percent": 2.0,
+        "risk_per_trade_percent": 9.0,
+        "sentiment_threshold_positive": 0.1,
+        "sentiment_threshold_negative": -0.1,
+        "volume_factor": 3.6264874515070096e-07,
+        "latency_seconds": 60,
+        "max_drawdown_percent": 30.0,
+        "max_trades": 50,
+        "sentiment_sizing_multiplier": 0.5,
+        "base_rsi_oversold": 21,
+        "base_rsi_overbought": 69,
+        "use_bollinger_bands": false,
+        "bb_window": 20,
+        "bb_window_dev": 2.0
+      },
+      "final_balance": 10030.084703587618,
+      "trades": 14,
+      "metrics": {
+        "profit_factor": "Infinity",
+        "max_drawdown": 5.631866127469485,
+        "win_rate": 1.0,
+        "avg_win": 4.6422474995728535,
+        "avg_loss": 0.0
+      },
+      "candles": 407,
+      "window": [
+        "2025-06-28 00:00:00+00:00",
+        "2025-07-14 22:00:00+00:00"
+      ]
+    },
+    "SOLUSDT": {
+      "params": {
+        "atr_period": 12,
+        "atr_trend_threshold": 0.03,
+        "breakout_rr_ratio": 3.5,
+        "grid_levels": 5,
+        "grid_step_percent": 1.0,
+        "grid_profit_target_percent": 1.0,
+        "grid_invalidation_percent": 1.5,
+        "risk_per_trade_percent": 1.0,
+        "sentiment_threshold_positive": 0.1,
+        "sentiment_threshold_negative": -0.1,
+        "volume_factor": 6.396157884112298e-07,
+        "latency_seconds": 0,
+        "max_drawdown_percent": 20.0,
+        "max_trades": 100,
+        "sentiment_sizing_multiplier": 0.25,
+        "base_rsi_oversold": 32,
+        "base_rsi_overbought": 62,
+        "use_bollinger_bands": true,
+        "bb_window": 25,
+        "bb_window_dev": 2.0
+      },
+      "final_balance": 10000.373958855067,
+      "trades": 10,
+      "metrics": {
+        "profit_factor": "Infinity",
+        "max_drawdown": 0.21207019079935024,
+        "win_rate": 0.8,
+        "avg_win": 0.1701214617068914,
+        "avg_loss": 0.0
+      },
+      "candles": 407,
+      "window": [
+        "2025-06-28 00:00:00+00:00",
+        "2025-07-14 22:00:00+00:00"
+      ]
+    },
+    "BNBUSDT": {
+      "params": {
+        "atr_period": 18,
+        "atr_trend_threshold": 0.01,
+        "breakout_rr_ratio": 2.5,
+        "grid_levels": 3,
+        "grid_step_percent": 0.5,
+        "grid_profit_target_percent": 1.5,
+        "grid_invalidation_percent": 1.5,
+        "risk_per_trade_percent": 8.0,
+        "sentiment_threshold_positive": 0.1,
+        "sentiment_threshold_negative": -0.1,
+        "volume_factor": 2.782472332616231e-07,
+        "latency_seconds": 60,
+        "max_drawdown_percent": 30.0,
+        "max_trades": 100,
+        "sentiment_sizing_multiplier": 1.0,
+        "base_rsi_oversold": 32,
+        "base_rsi_overbought": 74,
+        "use_bollinger_bands": true,
+        "bb_window": 22,
+        "bb_window_dev": 2.5
+      },
+      "final_balance": 10009.703534875423,
+      "trades": 8,
+      "metrics": {
+        "profit_factor": "Infinity",
+        "max_drawdown": 3.3325603783831594,
+        "win_rate": 0.75,
+        "avg_win": 3.6838763687577725,
+        "avg_loss": 0.0
+      },
+      "candles": 407,
+      "window": [
+        "2025-06-28 00:00:00+00:00",
+        "2025-07-14 22:00:00+00:00"
+      ]
+    }
+  }
+}

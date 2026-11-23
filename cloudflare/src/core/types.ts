@@ -100,6 +100,7 @@ export interface Trade {
 
 export interface AccountState {
   ready: boolean;
+  configTuned: boolean;      // true once per-token Optuna params have been applied
   name: string;
   symbol: string;
   config: StrategyConfig;

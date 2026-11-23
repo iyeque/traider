@@ -87,6 +87,30 @@ Documented deviations:
 
 - Binance HTTP 403 from Workers egress; fallback chain Binance → Coinbase → Kraken (all keyless, adapters tested in tests/market.test.ts).
 
+## Per-token tuning (Phase 1 — backtest -> DO config)
+
+`backtest/run_per_symbol.py` (on this branch) runs the exact 18-parameter
+Optuna search space from `backtest/optimize_params.py` through the REAL
+`backtest/strategy_backtest()` over the checked-in hourly CSVs plus
+`data_acquisition/historical_sentiment.csv`, once per token, and writes
+`cloudflare/src/tuned_params.json`. `src/tunedParams.ts` maps the snake_case
+output onto StrategyConfig; `TradingAccount.onStart` merges it per symbol, and
+a `configTuned` marker migrates existing Durable Objects on their next wake.
+
+First pass (real output): 8 Optuna trials per symbol on a shared 407-candle
+window 2025-06-28 -> 2025-07-14, sentiment fully overlapping. Starting $10,000:
+BTC $10002.66 / 2 trades, ETH $10030.08 / 14, SOL $10000.37 / 10,
+BNB $10009.70 / 8. Verified live: all four deployed accounts report
+`configTuned=true` with their own ATR period, grid levels, risk % and BB flags.
+
+CAVEAT: in-sample, only 8 trials, ~17 days of 2025 data; gains are noise-level
+and NOT walk-forward validated. Backtesting/Optuna itself stays in Python —
+it was not ported to the Worker. Re-run before trusting:
+`python3 backtest/run_per_symbol.py --trials 100 --start ... --end ... --out cloudflare/src/tuned_params.json`
+
+Signed Binance testnet execution (Phase 2) is still pending; testnet.binance.vision
+was verified reachable (HTTP 200) from the deployed Worker.
+
 ## 5. Free tier fit (Cloudflare docs, Nov 2026)
 
 - Workers Free: 100k requests/day, 10 ms CPU/invocation (I/O wait excluded),

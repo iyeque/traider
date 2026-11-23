@@ -6,6 +6,7 @@ import { Agent, callable } from "agents";
 import type { Env } from "./env";
 import type { AccountState, Candle, Position, StrategyConfig, Trade } from "./core/types";
 import { DEFAULT_CONFIG } from "./core/types";
+import { tunedConfigFor } from "./tunedParams";
 import { applyIndicators, atr as atrSeries } from "./core/indicators";
 import { generateSignal, selectStrategy, calculateTradeSize, breakoutLevels, gridLadder, isMarketSafe } from "./core/strategy";
 import { marketFill, realizedPnl, checkExit, gridBuyFilled, unrealizedPnl, drawdownPct, makeTrade } from "./core/sim";
@@ -19,7 +20,7 @@ interface PendingGrid { levels: { buyPrice: number; qty: number; tpPrice: number
 
 export class TradingAccount extends Agent<Env, AccountState> {
   initialState: AccountState = {
-    ready: false, name: "demo", symbol: "BTCUSDT", config: { ...DEFAULT_CONFIG },
+    ready: false, configTuned: false, name: "demo", symbol: "BTCUSDT", config: { ...DEFAULT_CONFIG },
     balance: INITIAL_BALANCE, initialBalance: INITIAL_BALANCE, equity: INITIAL_BALANCE,
     peakEquity: INITIAL_BALANCE, realizedPnl: 0, feesPaid: 0, wins: 0, losses: 0, tradeCount: 0,
     openPositions: [], recentTrades: [], equityHistory: [],
@@ -37,7 +38,16 @@ export class TradingAccount extends Agent<Env, AccountState> {
     if (!this.state.ready) {
       const base = (this.name || "btc-demo").split("-")[0].toLowerCase();
       const symbol = SYMBOLS[base] ?? "BTCUSDT";
-      this.setState({ ...this.initialState, ready: true, name: this.name, symbol });
+      this.setState({
+        ...this.initialState, ready: true, configTuned: true, name: this.name, symbol,
+        config: { ...DEFAULT_CONFIG, ...tunedConfigFor(symbol) },
+      });
+    } else if (!this.state.configTuned) {
+      // Existing DOs from before the tuning phase: adopt params on next wake.
+      this.setState({
+        ...this.state, configTuned: true,
+        config: { ...DEFAULT_CONFIG, ...tunedConfigFor(this.state.symbol) },
+      });
     }
     // Recurring schedules are idempotent (one row however often the agent starts).
     await this.scheduleEvery(60, "tick");
@@ -60,8 +70,8 @@ export class TradingAccount extends Agent<Env, AccountState> {
     this.sql`DELETE FROM trades`;
     this.pendingGrid = null;
     this.setState({
-      ...this.initialState, ready: true, name: this.name, symbol: this.state.symbol,
-      config: this.state.config,
+      ...this.initialState, ready: true, configTuned: true, name: this.name,
+      symbol: this.state.symbol, config: this.state.config,
     });
     return this.state;
   }
