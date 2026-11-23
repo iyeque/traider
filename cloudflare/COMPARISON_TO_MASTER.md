@@ -85,6 +85,8 @@ Documented deviations:
   cycle: regime=sideways (ATR from live klines), sentiment≈-0.0001 (real
   NewsAPI headlines), Fear&Greed=11, safety gate message, ticks=1, equity points=1.
 
+- Binance HTTP 403 from Workers egress; fallback chain Binance → Coinbase → Kraken (all keyless, adapters tested in tests/market.test.ts).
+
 ## 5. Free tier fit (Cloudflare docs, Nov 2026)
 
 - Workers Free: 100k requests/day, 10 ms CPU/invocation (I/O wait excluded),
@@ -92,6 +94,8 @@ Documented deviations:
 - SQLite Durable Objects on Free: 100 classes, 5 GB storage/account, 1 GB/object.
 - Four accounts at a 60 s tick = ~5,760 requests/day; ~69 accounts fit the
   100k/day ceiling before dashboard WebSocket traffic.
+
+Deployed Worker: https://traider-cloudflare.mmmaximus18.workers.dev (live tick: regime=sideways, real NewsAPI sentiment≈0.0017, F&G=11, lastError=null). Secrets set: NEWSAPI_KEY (CryptoPanic not needed — HTTP 403).
 
 ## 6. How to use both
 

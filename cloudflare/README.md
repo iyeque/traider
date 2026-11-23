@@ -69,6 +69,20 @@ Documented deviations (demo mode):
   reservation (the Python bot's PositionManager flips PnL sign for sells).
   Live spot cannot short without margin — flagged for the live-mode port.
 
+## Market data on deployed Workers (verified 2026-11-23)
+
+`data-api.binance.vision` works from a normal network but returns **HTTP 403
+from Cloudflare Workers egress** (datacenter IP range). `src/market.ts` falls
+back automatically: Binance → Coinbase Exchange public OHLC → Kraken public
+OHLC (all keyless). Coinbase returns numeric epoch **seconds** in `candles`
+(not ISO strings); Kraken canonicalizes pair names (XBTUSD → XXBTZUSD), so the
+adapter finds the candles key instead of hard-coding it. Adapters are covered
+by `tests/market.test.ts`.
+
+Live deployed tick: regime=sideways (real ATR), sentiment≈0.0017 (real NewsAPI
+headlines), Fear & Greed=11, lastError=null. URL:
+https://traider-cloudflare.mmmaximus18.workers.dev
+
 ## Free tier fit (verified against Cloudflare docs, Nov 2026)
 
 - Workers Free: 100,000 requests/day, 10 ms CPU per invocation, 128 MB memory,
