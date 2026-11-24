@@ -6,6 +6,8 @@ import pandas as pd
 from binance import AsyncClient
 import logging
 import time
+import signal
+import sys
 from typing import Dict, Any, Optional, List, Tuple, Union
 from aiohttp import web
 import json
@@ -95,7 +97,9 @@ class EmbeddedDashboard:
             logging.error(f"Error stopping dashboard: {e}")
 
     async def _handle_index(self, request: web.Request):
-        return web.Response(text='''
+        # Get current stats for static display
+        stats = self._stats_provider.get_stats()
+        return web.Response(text=f'''
         <html>
             <head>
                 <title>Trading Dashboard</title>
@@ -118,13 +122,13 @@ class EmbeddedDashboard:
                 <div class="container">
                     <h1>Trading Dashboard</h1>
                     <div class="stats">
-                        <div class="stat"><div class="stat-title">Trades</div><div class="stat-value" id="trades">0</div></div>
-                        <div class="stat"><div class="stat-title">Profit</div><div class="stat-value" id="profit">$0.00</div></div>
-                        <div class="stat"><div class="stat-title">Win Rate</div><div class="stat-value" id="win_rate">0%</div></div>
-                        <div class="stat"><div class="stat-title">Consec. Losses</div><div class="stat-value" id="consecutive_losses">0</div></div>
-                        <div class="stat"><div class="stat-title">Active Strategies</div><div class="stat-value" id="active_strategies">0</div></div>
-                        <div class="stat"><div class="stat-title">Sentiment</div><div class="stat-value" id="sentiment">-</div></div>
-                        <div class="stat"><div class="stat-title">Galaxy Score</div><div class="stat-value" id="galaxy_score">-</div></div>
+                        <div class="stat"><div class="stat-title">Trades</div><div class="stat-value" id="trades">{stats.get('trades', 0)}</div></div>
+                        <div class="stat"><div class="stat-title">Profit</div><div class="stat-value" id="profit">${stats.get('profit', 0):.2f}</div></div>
+                        <div class="stat"><div class="stat-title">Win Rate</div><div class="stat-value" id="win_rate">{stats.get('win_rate', 0)*100:.1f}%</div></div>
+                        <div class="stat"><div class="stat-title">Consec. Losses</div><div class="stat-value" id="consecutive_losses">{stats.get('consecutive_losses', 0)}</div></div>
+                        <div class="stat"><div class="stat-title">Active Strategies</div><div class="stat-value" id="active_strategies">{stats.get('active_strategies', 0)}</div></div>
+                        <div class="stat"><div class="stat-title">Sentiment</div><div class="stat-value" id="sentiment">{stats.get('last_sentiment', '-')}</div></div>
+                        <div class="stat"><div class="stat-title">Galaxy Score</div><div class="stat-value" id="galaxy_score">{stats.get('last_galaxy_score', '-')}</div></div>
                     </div>
                     <div class="section">
                         <h2>Recent Trades</h2>
@@ -137,25 +141,75 @@ class EmbeddedDashboard:
                     </div>
                 </div>
                 <script>
-                    const ws = new WebSocket('ws://' + location.host + '/ws');
-                    ws.onmessage = (event) => {
-                        const data = JSON.parse(event.data);
-                        document.getElementById('trades').textContent = data.trades;
+                    let ws = null;
+                    let reconnectAttempts = 0;
+                    const maxReconnectAttempts = 3;
+                    
+                    function connectWebSocket() {{
+                        try {{
+                            ws = new WebSocket('ws://' + location.host + '/ws');
+                            
+                            ws.onopen = function() {{
+                                console.log('WebSocket connected');
+                                reconnectAttempts = 0;
+                            }};
+                            
+                            ws.onmessage = function(event) {{
+                                const data = JSON.parse(event.data);
+                                updateDashboard(data);
+                            }};
+                            
+                            ws.onclose = function() {{
+                                console.log('WebSocket disconnected');
+                                if (reconnectAttempts < maxReconnectAttempts) {{
+                                    reconnectAttempts++;
+                                    setTimeout(connectWebSocket, 2000);
+                                }}
+                            }};
+                            
+                            ws.onerror = function(error) {{
+                                console.log('WebSocket error:', error);
+                            }};
+                        }} catch (error) {{
+                            console.log('WebSocket connection failed:', error);
+                        }}
+                    }}
+                    
+                    function updateDashboard(data) {{
+                        document.getElementById('trades').textContent = data.trades || 0;
                         document.getElementById('profit').textContent = '$' + Number(data.profit || 0).toFixed(2);
                         document.getElementById('win_rate').textContent = (Number(data.win_rate || 0) * 100).toFixed(2) + '%';
                         document.getElementById('consecutive_losses').textContent = data.consecutive_losses || 0;
                         document.getElementById('active_strategies').textContent = data.active_strategies || 0;
                         document.getElementById('sentiment').textContent = (data.last_sentiment !== null && data.last_sentiment !== undefined) ? Number(data.last_sentiment).toFixed(2) : '-';
                         document.getElementById('galaxy_score').textContent = (data.last_galaxy_score !== null && data.last_galaxy_score !== undefined) ? data.last_galaxy_score : '-';
+                        
                         const tbody = document.getElementById('trade_history');
                         tbody.innerHTML = '';
-                        (data.trade_history || []).slice(-10).reverse().forEach(trade => {
+                        (data.trade_history || []).slice(-10).reverse().forEach(trade => {{
                             const tr = document.createElement('tr');
                             const ts = trade.timestamp ? new Date(trade.timestamp).toLocaleString() : '-';
-                            tr.innerHTML = `<td>${trade.symbol || '-'}</td><td>${trade.side || '-'}</td><td>${trade.quantity || '-'}</td><td>${(trade.profit || 0).toFixed ? trade.profit.toFixed(2) : trade.profit}</td><td>${ts}</td>`;
+                            tr.innerHTML = `<td>${{trade.symbol || '-'}}</td><td>${{trade.side || '-'}}</td><td>${{trade.quantity || '-'}}</td><td>${{(trade.profit || 0).toFixed ? trade.profit.toFixed(2) : trade.profit}}</td><td>${{ts}}</td>`;
                             tbody.appendChild(tr);
-                        });
-                    };
+                        }});
+                    }}
+                    
+                    function refreshPage() {{
+                        location.reload();
+                    }}
+                    
+                    // Try to connect WebSocket, but don't block if it fails
+                    connectWebSocket();
+                    
+                    // Add refresh button
+                    document.addEventListener('DOMContentLoaded', function() {{
+                        const container = document.querySelector('.container');
+                        const refreshBtn = document.createElement('button');
+                        refreshBtn.textContent = 'Refresh';
+                        refreshBtn.style.cssText = 'position: fixed; top: 10px; right: 10px; padding: 10px; background: #4fd1c5; color: white; border: none; border-radius: 5px; cursor: pointer;';
+                        refreshBtn.onclick = refreshPage;
+                        document.body.appendChild(refreshBtn);
+                    }});
                 </script>
             </body>
         </html>
@@ -164,17 +218,49 @@ class EmbeddedDashboard:
     async def _handle_ws(self, request: web.Request):
         ws = web.WebSocketResponse()
         await ws.prepare(request)
+        
+        # Create a background task for sending updates
+        async def send_updates():
+            try:
+                while not ws.closed:
+                    try:
+                        stats = self._stats_provider.get_stats()
+                        await ws.send_str(json.dumps(stats, default=str))
+                        await asyncio.sleep(3)  # Longer interval to reduce load
+                    except ConnectionResetError:
+                        break
+                    except Exception as e:
+                        logging.error(f"Dashboard WS send error: {e}")
+                        break
+            except asyncio.CancelledError:
+                pass
+        
+        # Start the background task
+        update_task = asyncio.create_task(send_updates())
+        
         try:
-            while True:
-                stats = self._stats_provider.get_stats()
-                await ws.send_str(json.dumps(stats, default=str))
-                await asyncio.sleep(1)
-        except asyncio.CancelledError:
-            pass
+            # Just wait for the connection to close with timeout
+            try:
+                async for msg in ws:
+                    if msg.type == web.WSMsgType.CLOSE:
+                        break
+                    elif msg.type == web.WSMsgType.ERROR:
+                        logging.error(f'WebSocket error: {ws.exception()}')
+                        break
+            except asyncio.TimeoutError:
+                logging.info("WebSocket connection timed out")
         except Exception as e:
             logging.error(f"Dashboard WS error: {e}")
         finally:
-            await ws.close()
+            # Cancel the background task
+            update_task.cancel()
+            try:
+                await update_task
+            except asyncio.CancelledError:
+                pass
+            
+            if not ws.closed:
+                await ws.close()
         return ws
 
 async def get_account_balance(client: AsyncClient, quote_asset: str = 'USDT') -> float:
@@ -290,7 +376,7 @@ async def run_bot(bot_state):
     logging.info(f"\nRunning bot at {now.strftime('%Y-%m-%d %H:%M:%S')}")
 
     # Ensure parameters are not None before passing to is_market_safe
-    sentiment_threshold = SENTIMENT_THRESHOLD_POSITIVE if SENTIMENT_THRESHOLD_POSITIVE is not None else 0.1
+    sentiment_threshold = SENTIMENT_THRESHOLD_POSITIVE if SENTIMENT_THRESHOLD_POSITIVE is not None else 0.0
     fear_greed_threshold = FEAR_GREED_THRESHOLD if FEAR_GREED_THRESHOLD is not None else 30
     if not is_market_safe(min_sentiment=sentiment_threshold, min_fear_greed=fear_greed_threshold):
         logging.warning("Market conditions not safe. Skipping trade.")
@@ -351,12 +437,13 @@ async def main():
         await dashboard.start(port=8181)
         scheduler_task = asyncio.create_task(run_scheduler(bot_state))
 
-        await asyncio.gather(scheduler_task, monitor_task)
+        # Run all tasks concurrently
+        await asyncio.gather(scheduler_task, monitor_task, return_exceptions=True)
 
     except asyncio.CancelledError:
         logging.info("\nTasks cancelled due to shutdown.")
     except KeyboardInterrupt:
-        logging.info("\nBot stopped by user. Initiating graceful shutdown...")
+        logging.info("\nBot stopped by user (Ctrl+C). Initiating graceful shutdown...")
         # Cancel tasks only if they were created
         if scheduler_task:
             scheduler_task.cancel()
@@ -367,6 +454,7 @@ async def main():
         tasks_to_gather = [task for task in [scheduler_task, monitor_task] if task is not None]
         if tasks_to_gather: # Only gather if there are actual tasks
             await asyncio.gather(*tasks_to_gather, return_exceptions=True)
+        logging.info("Graceful shutdown completed.")
     except ConnectionError as e:
         logging.error(f"Connection error occurred: {e}", exc_info=True)
     except TimeoutError as e:
@@ -386,5 +474,19 @@ async def main():
             except Exception as e:
                 logging.error(f"Error stopping dashboard: {e}")
 
+def signal_handler(signum, frame):
+    logging.info(f"\nReceived signal {signum}. Initiating shutdown...")
+    sys.exit(0)
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    # Set up signal handlers for graceful shutdown
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logging.info("Bot stopped by user (Ctrl+C).")
+    except Exception as e:
+        logging.error(f"Bot crashed: {e}")
+        sys.exit(1)

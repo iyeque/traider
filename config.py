@@ -59,10 +59,10 @@ class Config:
             'GRID_INVALIDATION_PERCENT': 2.0,
             
             # Sentiment parameters
-            'SENTIMENT_THRESHOLD_POSITIVE': 0.1,
+            'SENTIMENT_THRESHOLD_POSITIVE': 0.0,
             'SENTIMENT_THRESHOLD_NEGATIVE': -0.1,
-            'FEAR_GREED_THRESHOLD': 50,
-            'MIN_FEAR_GREED': 30,
+            'FEAR_GREED_THRESHOLD': 30,
+            'MIN_FEAR_GREED': 20,
             
             # API keys and environment
             'BINANCE_API_KEY': '',

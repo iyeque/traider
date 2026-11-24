@@ -104,12 +104,27 @@ def fetch_rss_sentiment(feed_url: str, max_items: int = 10) -> float:
     Returns a sentiment score between -1.0 and 1.0.
     """
     try:
-        feed = feedparser.parse(feed_url)
+        # Add headers to avoid bot detection
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        
+        # Fetch the feed with headers
+        response = requests.get(feed_url, headers=headers, timeout=10)
+        response.raise_for_status()
+        
+        # Parse the feed content
+        feed = feedparser.parse(response.content)
+        
+        # Check if feed parsing was successful
+        if feed.bozo:
+            logging.warning(f"RSS feed parsing issues for {feed_url}: {feed.bozo_exception}")
+        
         entries = feed.entries[:max_items]
-        headlines = [entry.title for entry in entries if hasattr(entry, "title")]
+        headlines = [entry.title for entry in entries if hasattr(entry, "title") and entry.title]
 
         if not headlines:
-            logging.warning(f"No headlines found in RSS feed: {feed_url}")
+            logging.warning(f"No headlines found in RSS feed: {feed_url} (entries: {len(entries)}, feed status: {feed.status})")
             return 0.0
 
         sentiments = [_extract_polarity(title) for title in headlines]
@@ -143,31 +158,45 @@ def get_live_sentiment() -> Tuple[float, int]:
     Fetches and aggregates live sentiment from multiple sources.
     Returns a tuple of (sentiment_score, fear_greed_index).
     """
+    sentiments = []
+    
     # Try CryptoPanic first
-    sentiment = fetch_cryptopanic_sentiment()
+    cryptopanic_sentiment = fetch_cryptopanic_sentiment()
+    if cryptopanic_sentiment != 0.0:
+        sentiments.append(cryptopanic_sentiment)
+        logging.info(f"CryptoPanic sentiment: {cryptopanic_sentiment:.3f}")
+    else:
+        logging.info("CryptoPanic failed or returned neutral, trying NewsAPI...")
     
-    # If CryptoPanic fails, try NewsAPI
-    if sentiment == 0.0:
-        logging.info("CryptoPanic returned no sentiment, trying NewsAPI...")
-        sentiment = fetch_newsapi_sentiment()
+    # Always try NewsAPI as backup/enhancement
+    newsapi_sentiment = fetch_newsapi_sentiment()
+    if newsapi_sentiment != 0.0:
+        sentiments.append(newsapi_sentiment)
+        logging.info(f"NewsAPI sentiment: {newsapi_sentiment:.3f}")
     
-    # If both fail, try RSS feeds
-    if sentiment == 0.0:
-        logging.info("NewsAPI returned no sentiment, trying RSS feeds...")
+    # If we have few/no sentiments, try RSS feeds for additional data
+    if len(sentiments) < 2:
+        logging.info("Trying RSS feeds for additional sentiment data...")
         rss_feeds = [
             "https://cointelegraph.com/rss",
-            "https://www.coindesk.com/feed/",
-            "https://nitter.net/WatcherGuru/rss"
+            "https://www.coindesk.com/arc/outboundfeeds/rss/?outputType=xml",
+            "https://feeds.feedburner.com/CoinDesk",
+            "https://bitcoinmagazine.com/feed"
         ]
         
-        rss_sentiments = []
         for feed_url in rss_feeds:
             score = fetch_rss_sentiment(feed_url)
             if score != 0.0:
-                rss_sentiments.append(score)
-        
-        if rss_sentiments:
-            sentiment = sum(rss_sentiments) / len(rss_sentiments)
+                sentiments.append(score)
+                logging.info(f"RSS sentiment from {feed_url}: {score:.3f}")
+    
+    # Calculate final sentiment
+    if sentiments:
+        sentiment = sum(sentiments) / len(sentiments)
+        logging.info(f"Aggregated sentiment from {len(sentiments)} sources: {sentiment:.3f}")
+    else:
+        sentiment = 0.0
+        logging.warning("No sentiment data available from any source")
     
     # Get Fear & Greed Index
     fear_greed = fetch_fear_greed_index()
