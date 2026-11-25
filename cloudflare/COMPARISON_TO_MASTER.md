@@ -139,6 +139,21 @@ weekly dispatch of this workflow, monthly deeper walk-forward, manual
 re-dispatch on regime breaks. Verified locally: YAML parses, both merge paths
 (promote/no-promote) produce correct outputs, OOS split + guardrails work.
 
+### Phase 1b live verification (2026-11-25)
+
+First GitHub run failed: `*.csv` was gitignored, so the runner checkout had no
+`backtest/*_1h.csv` (FileNotFoundError). Fixed by force-adding the five data
+files to cloudflare-agents (264 KB total). Second run (2-trial smoke,
+`https://github.com/iyeque/traider/actions/runs/45577503929`) succeeded: all
+four tune jobs plus aggregate green. Report showed BNB/BTC/ETH passing all
+guardrails, SOL failing with only 2 out-of-sample trades, so overall verdict
+"NO PROMOTION - existing params kept" and no PR was opened — correct behaviour.
+
+GitHub registers workflows only from the DEFAULT branch (`master`, confirmed
+via API). The workflow file is mirrored on master; its jobs explicitly check
+out cloudflare-agents. This avoids changing the repo default branch and still
+allows adding a `schedule:` trigger to the master copy later if desired.
+
 ## 5. Free tier fit (Cloudflare docs, Nov 2026)
 
 - Workers Free: 100k requests/day, 10 ms CPU/invocation (I/O wait excluded),
