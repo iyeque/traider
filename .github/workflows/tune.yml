@@ -4,6 +4,9 @@ name: Traider tuning (train/OOS + guarded promotion)
 # branch (main here, which is stale). Dispatch externally or from the UI:
 #   scripts/dispatch_tune.sh  (uses GITHUB_TOKEN)
 on:
+  schedule:
+    # Runs every Sunday 02:30 UTC; the gate job keeps only every other week.
+    - cron: "30 2 * * 0"
   workflow_dispatch:
     inputs:
       trials:
@@ -31,7 +34,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - id: decide
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            WEEKS=$(( $(date -u +%s) / 604800 ))
+            if [ $(( WEEKS % 2 )) -eq 0 ]; then
+              echo "run=true" >> "$GITHUB_OUTPUT"
+              echo "Bi-weekly gate: RUN this week (epoch-week $WEEKS)"
+            else
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              echo "Bi-weekly gate: SKIP this week (epoch-week $WEEKS)"
+            fi
+          fi
+
   tune:
+    needs: gate
+    if: ${{ needs.gate.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
@@ -61,7 +86,8 @@ jobs:
           path: tune_${{ matrix.symbol }}.json
 
   aggregate:
-    needs: tune
+    needs: [tune, gate]
+    if: ${{ needs.gate.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
