@@ -111,6 +111,34 @@ it was not ported to the Worker. Re-run before trusting:
 Signed Binance testnet execution (Phase 2) is still pending; testnet.binance.vision
 was verified reachable (HTTP 200) from the deployed Worker.
 
+## Phase 1b — tuning workflow (GitHub Action)
+
+`.github/workflows/tune.yml` lives on this branch and runs via
+`workflow_dispatch` (GitHub only runs `schedule:` workflows on the DEFAULT
+branch, which here is the stale `main`). Dispatch from the Actions UI or:
+
+```
+GITHUB_TOKEN=... ./scripts/dispatch_tune.sh 50 0.25
+```
+
+Four parallel matrix jobs (one per token) run `backtest/run_per_symbol.py`
+with a train/out-of-sample split. The tuner uses checked-in CSVs and an
+OfflineClient for exchange filters — **no Binance network calls from GitHub
+runners**, whose shared IPs can be WAF-blocked (403). Optuna sees only the
+training slice; the held-out tail decides promotion.
+
+Guardrails (all four tokens must pass): out-of-sample return > 0, at least 3
+OOS trades, profit factor > 1.2, win rate >= 45%, max drawdown < 20%.
+The aggregate job writes a job summary, and opens a PR against
+`cloudflare-agents` only when all pass; otherwise it reports "no promotion"
+and leaves `tuned_params.json` untouched. Promotion requires a merge and then
+`npm run deploy` — params are baked into the Worker at build time.
+
+Suggested cadence: daily data refresh on a clean-IP machine (commit CSVs),
+weekly dispatch of this workflow, monthly deeper walk-forward, manual
+re-dispatch on regime breaks. Verified locally: YAML parses, both merge paths
+(promote/no-promote) produce correct outputs, OOS split + guardrails work.
+
 ## 5. Free tier fit (Cloudflare docs, Nov 2026)
 
 - Workers Free: 100k requests/day, 10 ms CPU/invocation (I/O wait excluded),

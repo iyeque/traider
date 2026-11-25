@@ -1,0 +1,91 @@
+name: Traider tuning (train/OOS + guarded promotion)
+
+# workflow_dispatch only: GitHub runs `schedule:` workflows on the DEFAULT
+# branch (main here, which is stale). Dispatch externally or from the UI:
+#   scripts/dispatch_tune.sh  (uses GITHUB_TOKEN)
+on:
+  workflow_dispatch:
+    inputs:
+      trials:
+        description: Optuna trials per token
+        required: false
+        default: "50"
+        type: string
+      test_fraction:
+        description: Fraction of candles held out for out-of-sample validation
+        required: false
+        default: "0.25"
+        type: string
+      promote:
+        description: Open a promotion PR when all guardrails pass
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: traider-tuning
+  cancel-in-progress: false
+
+jobs:
+  tune:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        symbol: [BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cloudflare-agents
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+      - name: Tune ${{ matrix.symbol }} on train slice only
+        run: |
+          python3 backtest/run_per_symbol.py \
+            --symbols ${{ matrix.symbol }} \
+            --trials "${{ inputs.trials }}" \
+            --test-fraction "${{ inputs.test_fraction }}" \
+            --out tune_${{ matrix.symbol }}.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tune-${{ matrix.symbol }}
+          path: tune_${{ matrix.symbol }}.json
+
+  aggregate:
+    needs: tune
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cloudflare-agents
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: tune-*
+          path: artifacts
+      - name: Merge, check guardrails, write report
+        id: merge
+        run: python3 .github/scripts/merge_tuning.py artifacts cloudflare/src/tuned_params.json .github/tuning-report.md
+      - name: Open promotion PR
+        if: ${{ inputs.promote && steps.merge.outputs.promote == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BRANCH="tuned/params-${{ github.run_id }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add cloudflare/src/tuned_params.json
+          git commit -m "chore(tuning): promote out-of-sample-validated params"
+          git push origin "$BRANCH"
+          gh pr create --base cloudflare-agents --head "$BRANCH" \
+            --title "chore(tuning): promoted parameters (run ${{ github.run_id }})" \
+            --body-file .github/tuning-report.md
