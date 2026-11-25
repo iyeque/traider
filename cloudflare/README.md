@@ -148,7 +148,7 @@ guardrails, SOL failing with only 2 out-of-sample trades, so overall verdict
 GitHub registers workflows only from the DEFAULT branch (`master`, confirmed
 via API). The workflow file is mirrored on master; its jobs explicitly check
 out cloudflare-agents. This avoids changing the repo default branch and still
-allows adding a `schedule:` trigger to the master copy later if desired.
+now carries `schedule: 30 2 * * 0` plus an epoch-week parity gate: only every other Sunday actually runs (next live run 2026-12-06); manual dispatch always runs regardless of parity.
 
 ## Free tier fit (verified against Cloudflare docs, Nov 2026)
 
