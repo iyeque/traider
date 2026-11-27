@@ -154,6 +154,26 @@ via API). The workflow file is mirrored on master; its jobs explicitly check
 out cloudflare-agents. This avoids changing the repo default branch and still
 now carries `schedule: 30 2 * * 0` with an epoch-week parity gate for a true 14-day cadence (next live run 2026-12-06); workflow_dispatch ignores the gate.
 
+### Daily data refresh (second half of Phase 1b)
+
+`backtest/refresh_data.py` fetches a rolling 1,000 x 1h OHLCV window for all
+four symbols from the keyless `data-api.binance.vision` endpoint (works from
+this WSL machine; 403 from Cloudflare/GitHub runners) and merges fresh hourly
+sentiment from NewsAPI + RSS into the existing CSV. CryptoPanic is skipped
+(HTTP 403), and the upstream module's URL logging is suppressed so the API
+key can never reach cron logs. Run with `--commit` to overwrite the CSVs and
+push them to cloudflare-agents.
+
+Installed in this machine's crontab at 04:30 local (00:30 UTC) daily under the
+marker `# traider-daily-refresh`, logging to the Hermes scratch directory.
+Verified live: all four CSVs now cover 2026-10-17 -> 2026-11-27, sentiment
+extends to 2026-11-27 (748 rows), the tuner reads the refreshed data correctly,
+and the commit/push path works. NewsAPI currently returns 429 on the free
+tier, so the job falls back to RSS headlines; that is deliberate and safe.
+
+This also supplies repository activity well inside the 60-day window that can
+auto-disable scheduled workflows in public repos.
+
 ## 5. Free tier fit (Cloudflare docs, Nov 2026)
 
 - Workers Free: 100k requests/day, 10 ms CPU/invocation (I/O wait excluded),
