@@ -170,6 +170,16 @@ tier, so the job falls back to RSS headlines; that is deliberate and safe.
 This also supplies repository activity well inside the 60-day window that can
 auto-disable scheduled workflows in public repos.
 
+### Phase 2 execution plane (Vercel)
+
+Binance's WAF blocks signed order requests from Cloudflare egress, but signed
+reads work. The Worker therefore keeps the strategy, state and keys, and signs
+short-lived order intents; a Vercel function pinned to `bom1` (Mumbai) posts
+them from an accepted egress. Vercel never sees the API secret. Secrets:
+`EXECUTOR_TOKEN` (Worker + Vercel), `VERCEL_EXECUTOR_URL` (Worker),
+`ENABLE_TESTNET_ORDERS` (kill switch, default false). Verified with real 0.0001
+BTC testnet BUY/SELL orders filled end-to-end through Worker → Vercel → Binance.
+
 ## Free tier fit (verified against Cloudflare docs, Nov 2026)
 
 - Workers Free: 100,000 requests/day, 10 ms CPU per invocation, 128 MB memory,

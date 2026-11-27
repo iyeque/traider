@@ -4,4 +4,11 @@ export interface Env extends Cloudflare.Env {
   DEMO_PROXY_SENTIMENT?: string; // "false" disables the F&G proxy fallback
   CRYPTOPANIC_API_KEY?: string;
   NEWSAPI_KEY?: string;
+  BINANCE_TESTNET_API_KEY?: string;
+  BINANCE_TESTNET_SECRET?: string;
+  TRADING_MODE?: string;          // "testnet" switches accounts out of demo mode
+  ENABLE_TESTNET_ORDERS?: string; // "true" opt-in for real testnet orders
+  ADMIN_TOKEN?: string;           // guards the testnet order diagnostic route
+  EXECUTOR_TOKEN?: string;        // shared secret for the Vercel executor
+  VERCEL_EXECUTOR_URL?: string;   // permanent Vercel execution-plane URL
 }
