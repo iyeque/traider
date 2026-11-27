@@ -1,0 +1,39 @@
+name: Binance testnet egress probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      admin_token:
+        description: Diagnostic token for the Worker probe endpoint
+        required: true
+        type: string
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Signed request from GitHub runner IP (invalid symbol, no order)
+        env:
+          ADMIN_TOKEN: ${{ inputs.admin_token }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request, urllib.error
+          base = 'https://traider-cloudflare.mmmaximus18.workers.dev'
+          def get_json(path):
+              req = urllib.request.Request(base + path, headers={'x-admin-token': os.environ['ADMIN_TOKEN']})
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  return json.load(r)
+          try:
+              print('signed GET from runner:', get_json('/api/testnet/status'))
+          except Exception as e:
+              print('signed GET from runner failed:', str(e)[:200])
+          try:
+              p = get_json('/api/testnet/probe')
+              req = urllib.request.Request(p['url'], method='POST', headers={'X-MBX-APIKEY': p['apiKey']})
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  print('signed POST result HTTP', r.status, r.read().decode()[:200])
+          except urllib.error.HTTPError as e:
+              print('signed POST result HTTP', e.code, e.read().decode()[:200])
+          except Exception as e:
+              print('signed POST failed:', str(e)[:200])
+          PY
