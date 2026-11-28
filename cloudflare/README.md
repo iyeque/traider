@@ -177,7 +177,9 @@ reads work. The Worker therefore keeps the strategy, state and keys, and signs
 short-lived order intents; a Vercel function pinned to `bom1` (Mumbai) posts
 them from an accepted egress. Vercel never sees the API secret. Secrets:
 `EXECUTOR_TOKEN` (Worker + Vercel), `VERCEL_EXECUTOR_URL` (Worker),
-`ENABLE_TESTNET_ORDERS` (kill switch, default false). Verified with real 0.0001
+`ENABLE_TESTNET_ORDERS` (kill switch; currently TRUE for live observation —
+set to false to disarm). When a breakout signal fires in testnet mode the DO
+places a real market order plus OCO exits through Vercel; demo mode is unchanged. Verified with real 0.0001
 BTC testnet BUY/SELL orders filled end-to-end through Worker → Vercel → Binance.
 
 ## Free tier fit (verified against Cloudflare docs, Nov 2026)

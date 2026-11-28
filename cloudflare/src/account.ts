@@ -12,6 +12,7 @@ import { generateSignal, selectStrategy, calculateTradeSize, breakoutLevels, gri
 import { marketFill, realizedPnl, checkExit, gridBuyFilled, unrealizedPnl, drawdownPct, makeTrade } from "./core/sim";
 import { fetchKlines } from "./market";
 import { getLiveSentiment } from "./sentiment";
+import { TestnetClient } from "./testnet";
 
 const SYMBOLS: Record<string, string> = { btc: "BTCUSDT", eth: "ETHUSDT", sol: "SOLUSDT", bnb: "BNBUSDT" };
 const INITIAL_BALANCE = 1000; // BACKTEST_INITIAL_BALANCE
@@ -20,7 +21,7 @@ interface PendingGrid { levels: { buyPrice: number; qty: number; tpPrice: number
 
 export class TradingAccount extends Agent<Env, AccountState> {
   initialState: AccountState = {
-    ready: false, configTuned: false, name: "demo", symbol: "BTCUSDT", config: { ...DEFAULT_CONFIG },
+    ready: false, mode: "demo", testnetOk: null, testnetError: null, realFreeUsdt: null, configTuned: false, name: "demo", symbol: "BTCUSDT", config: { ...DEFAULT_CONFIG },
     balance: INITIAL_BALANCE, initialBalance: INITIAL_BALANCE, equity: INITIAL_BALANCE,
     peakEquity: INITIAL_BALANCE, realizedPnl: 0, feesPaid: 0, wins: 0, losses: 0, tradeCount: 0,
     openPositions: [], recentTrades: [], equityHistory: [],
@@ -29,6 +30,7 @@ export class TradingAccount extends Agent<Env, AccountState> {
   };
 
   private pendingGrid: PendingGrid | null = null;
+  private get testnet(): TestnetClient { return new TestnetClient(this.env); }
 
   async onStart() {
     this.sql`CREATE TABLE IF NOT EXISTS trades (
@@ -38,8 +40,12 @@ export class TradingAccount extends Agent<Env, AccountState> {
     if (!this.state.ready) {
       const base = (this.name || "btc-demo").split("-")[0].toLowerCase();
       const symbol = SYMBOLS[base] ?? "BTCUSDT";
+      const wantTestnet = this.env.TRADING_MODE === "testnet";
+      const testnet = new TestnetClient(this.env);
+      const mode = wantTestnet && testnet.configured ? "testnet" : "demo";
       this.setState({
-        ...this.initialState, ready: true, configTuned: true, name: this.name, symbol,
+        ...this.initialState, ready: true, configTuned: true, name: this.name, symbol, mode,
+        testnetError: wantTestnet && !testnet.configured ? "testnet mode requested but credentials missing" : null,
         config: { ...DEFAULT_CONFIG, ...tunedConfigFor(symbol) },
       });
     } else if (!this.state.configTuned) {
@@ -49,12 +55,23 @@ export class TradingAccount extends Agent<Env, AccountState> {
         config: { ...DEFAULT_CONFIG, ...tunedConfigFor(this.state.symbol) },
       });
     }
+    // Migrate pre-Phase-2 persisted state on old tuned DOs.
+    const cur = this.state as AccountState;
+    if (cur.mode === undefined || cur.testnetOk === undefined || cur.realFreeUsdt === undefined) {
+      const want = this.env.TRADING_MODE === "testnet" && new TestnetClient(this.env).configured;
+      this.setState({ ...this.initialState, ...cur, mode: cur.mode ?? (want ? "testnet" : "demo") });
+    }
     // Recurring schedules are idempotent (one row however often the agent starts).
     await this.scheduleEvery(60, "tick");
   }
 
   async onRequest(request: Request): Promise<Response> {
-    if (request.method === "POST") { await this.tick(); return Response.json(this.state); }
+    if (request.method === "POST") {
+      // Warm DOs keep their old state; re-derive mode from env on every wake.
+      const want = this.env.TRADING_MODE === "testnet" && new TestnetClient(this.env).configured;
+      if (want && this.state.mode !== "testnet") this.setState({ ...this.state, mode: "testnet" });
+      await this.tick(); return Response.json(this.state);
+    }
     return Response.json(this.state);
   }
 
@@ -76,12 +93,38 @@ export class TradingAccount extends Agent<Env, AccountState> {
     return this.state;
   }
 
+  // ---- Phase 2 controls: signed testnet verification + explicit orders ----
+  @callable() async testnetStatus() {
+    if (!this.testnet.configured) return { configured: false, error: "no testnet credentials" };
+    try { return { configured: true, ...await this.testnet.account() }; }
+    catch (e) { return { configured: true, ok: false, error: String(e instanceof Error ? e.message : e).slice(0, 180) }; }
+  }
+  @callable() async testnetPlaceOrder(side: "buy" | "sell", quantity: number) {
+    if (this.state.mode !== "testnet") throw new Error("account is in demo mode");
+    const o = await this.testnet.marketOrder(this.state.symbol, side.toUpperCase() as "BUY" | "SELL", quantity);
+    const t = makeTrade({ ts: Date.now(), symbol: this.state.symbol, side, qty: quantity, price: 0, fee: 0, pnl: 0, status: "FILLED", strategy: "breakout" });
+    this.sql`INSERT INTO trades (id, ts, symbol, side, qty, price, fee, pnl, status, strategy)
+             VALUES (${t.id}, ${t.ts}, ${t.symbol}, ${t.side}, ${t.qty}, ${t.price}, ${t.fee}, ${t.pnl}, ${t.status}, ${t.strategy})`;
+    this.setState({ ...this.state, recentTrades: [...this.state.recentTrades, t].slice(-50) });
+    return o;
+  }
+
   // ---- the strategy cycle (port of main.py run_bot) ----
   async tick() {
     const s = this.state;
     if (!s.ready || s.paused) return;
     const cfg = s.config;
     const now = Date.now();
+    let testnetState: Partial<AccountState> = {};
+    if (s.mode === "testnet") {
+      try {
+        const acct = await this.testnet.account();
+        testnetState = { testnetOk: true, testnetError: null, realFreeUsdt: acct.freeUsdt };
+        if (!acct.canTrade) testnetState.testnetError = "testnet key lacks TRADE permission";
+      } catch (e) {
+        testnetState = { testnetOk: false, testnetError: String(e instanceof Error ? e.message : e).slice(0, 180) };
+      }
+    }
     try {
       const [candles, sent] = await Promise.all([
         fetchKlines(s.symbol, cfg.interval, 100),
@@ -119,7 +162,13 @@ export class TradingAccount extends Agent<Env, AccountState> {
       // 1) manage open positions against the latest candle
       for (const pos of [...positions]) {
         const ex = checkExit(pos, last);
-        if (ex.hit) closePos(pos, ex.exitPrice, "CLOSED", pos.strategy);
+        if (ex.hit) {
+          if (pos.real && s.mode === "testnet") {
+            try { await this.testnet.marketOrder(pos.symbol, pos.side === "buy" ? "SELL" : "BUY", pos.qty); }
+            catch (e) { testnetState = { ...testnetState, testnetError: `exit failed: ${String(e instanceof Error ? e.message : e).slice(0, 140)}` }; }
+          }
+          closePos(pos, ex.exitPrice, "CLOSED", pos.strategy);
+        }
       }
 
       // 2) grid ladder fills / invalidation
@@ -177,12 +226,28 @@ export class TradingAccount extends Agent<Env, AccountState> {
               const fill = marketFill(price, signal, qty, cfg);
               const cost = qty * fill.fillPrice + fill.fee;
               if (balance >= cost && qty * fill.fillPrice >= cfg.minNotional) {
-                balance -= cost; fees += fill.fee; tradeCount += 1;
-                const t = makeTrade({ ts: now, symbol: s.symbol, side: signal, qty, price: fill.fillPrice, fee: fill.fee, pnl: 0, status: "FILLED", strategy: "breakout" });
-                newTrades.push(t);
-                this.sql`INSERT INTO trades (id, ts, symbol, side, qty, price, fee, pnl, status, strategy)
-                         VALUES (${t.id}, ${t.ts}, ${t.symbol}, ${t.side}, ${t.qty}, ${t.price}, ${t.fee}, ${t.pnl}, ${t.status}, ${t.strategy})`;
-                positions.push({ id: t.id, symbol: s.symbol, side: signal, strategy: "breakout", entryPrice: fill.fillPrice, qty, sl, tp, invalidation: null, openedAt: now });
+                if (s.mode === "testnet") {
+                  // REAL testnet entry via Worker -> Vercel -> Binance.
+                  try {
+                    const o = await this.testnet.marketOrder(s.symbol, signal.toUpperCase() as "BUY" | "SELL", qty);
+                    await this.testnet.ocoOrder(s.symbol, signal === "buy" ? "SELL" : "BUY", qty, tp, sl);
+                    const t = makeTrade({ ts: now, symbol: s.symbol, side: signal, qty, price: fill.fillPrice, fee: fill.fee, pnl: 0, status: "FILLED", strategy: "breakout" });
+                    newTrades.push(t);
+                    this.sql`INSERT INTO trades (id, ts, symbol, side, qty, price, fee, pnl, status, strategy)
+                             VALUES (${t.id}, ${t.ts}, ${t.symbol}, ${t.side}, ${t.qty}, ${t.price}, ${t.fee}, ${t.pnl}, ${t.status}, ${t.strategy})`;
+                    positions.push({ id: t.id, symbol: s.symbol, side: signal, strategy: "breakout", entryPrice: fill.fillPrice, qty, sl, tp, invalidation: null, openedAt: now, real: true, orderId: String(o.orderId) });
+                    testnetState = { ...testnetState, testnetError: null };
+                  } catch (e) {
+                    testnetState = { ...testnetState, testnetOk: false, testnetError: `entry failed: ${String(e instanceof Error ? e.message : e).slice(0, 140)}` };
+                  }
+                } else {
+                  balance -= cost; fees += fill.fee; tradeCount += 1;
+                  const t = makeTrade({ ts: now, symbol: s.symbol, side: signal, qty, price: fill.fillPrice, fee: fill.fee, pnl: 0, status: "FILLED", strategy: "breakout" });
+                  newTrades.push(t);
+                  this.sql`INSERT INTO trades (id, ts, symbol, side, qty, price, fee, pnl, status, strategy)
+                           VALUES (${t.id}, ${t.ts}, ${t.symbol}, ${t.side}, ${t.qty}, ${t.price}, ${t.fee}, ${t.pnl}, ${t.status}, ${t.strategy})`;
+                  positions.push({ id: t.id, symbol: s.symbol, side: signal, strategy: "breakout", entryPrice: fill.fillPrice, qty, sl, tp, invalidation: null, openedAt: now });
+                }
               }
             }
           }
@@ -213,6 +278,7 @@ export class TradingAccount extends Agent<Env, AccountState> {
         wins, losses, tradeCount, openPositions: positions, recentTrades, equityHistory,
         sentiment: sent.sentiment, fearGreed: sent.fearGreed, regime, lastSignal: signal,
         lastTick: now, ticks: s.ticks + 1, halted, haltReason, lastError: gate.safe ? null : gate.reason,
+        ...testnetState,
       });
     } catch (e) {
       this.setState({ ...this.state, lastError: String(e instanceof Error ? e.message : e), lastTick: now, ticks: this.state.ticks + 1 });
