@@ -77,6 +77,8 @@ export interface Position {
   symbol: string;
   side: Side;
   strategy: StrategyName;
+  real?: boolean;       // true = filled on Binance testnet, not simulated
+  orderId?: string;     // exchange order id for real positions
   entryPrice: number;
   qty: number;
   sl: number | null;           // breakout stop-loss
@@ -100,6 +102,10 @@ export interface Trade {
 
 export interface AccountState {
   ready: boolean;
+  mode: "demo" | "testnet";
+  testnetOk: boolean | null;
+  testnetError: string | null;
+  realFreeUsdt: number | null;
   configTuned: boolean;      // true once per-token Optuna params have been applied
   name: string;
   symbol: string;
@@ -117,6 +123,9 @@ export interface AccountState {
   recentTrades: Trade[];       // last 50, newest last
   equityHistory: { t: number; equity: number }[]; // last 240 points for the sparkline
   sentiment: number;
+  sentimentSources?: number;
+  sentimentStale?: boolean;
+  sentimentBySource?: Record<string, number>;
   fearGreed: number;
   regime: Regime;
   lastSignal: Signal;

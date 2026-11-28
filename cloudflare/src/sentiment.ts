@@ -1,39 +1,41 @@
-// Port of data_acquisition/fetch_live_sentiment.py + bot/sentiment_engine.py.
-// Aggregation order is faithful: CryptoPanic -> NewsAPI -> RSS (only if <2
-// non-zero sources) -> average of non-zero scores; Fear & Greed always fetched
-// (neutral 50 on failure).
+// Multi-source headline sentiment for Traider.
+// Sources: CryptoPanic (if key), NewsAPI (if key), GDELT DOC (keyless),
+// and several RSS feeds. Fear & Greed stays a separate input, never a
+// substitute for headlines. Every source is scored with the same AFINN-165
+// static lexifier (a port of the `sentiment` npm package), deduplicated by
+// normalized headline, and combined with per-source weights. Freshness and
+// source counts are returned so callers can refuse to trade on stale data.
 //
-// DOCUMENTED DEVIATION: Python scores headlines with TextBlob (pattern lexicon).
-// TextBlob has no JS port, so we use the AFINN-165 lexicon (`sentiment` npm,
-// .comparative in [-1,1]). Same shape, different lexicon — scores will differ
-// slightly from the Python bot.
-//
-// DEMO PROXY: with no API keys configured, real headline sentiment is usually
-// 0 (neutral), which blocks all buys at the default threshold. For demo mode
-// we derive sentiment from the public Fear & Greed index: (fng-50)/50.
-// Disable with DEMO_PROXY_SENTIMENT="false".
+// DOCUMENTED DEVIATION: Python scores headlines with TextBlob; the Worker uses
+// AFINN-165. Scores differ slightly. Re-tune after changing this pipeline.
 
-// Static port of the `sentiment` npm package's English analyzer.
-// The package itself does `require('../languages/' + languageCode + '/index')`
-// at runtime, which esbuild cannot bundle into a Worker. We bundle the exact
-// same AFINN labels + negators as static JSON and reproduce its tokenize/score
-// algorithm (emojis omitted — irrelevant for news headlines).
 import labels from "./core/sentiment-en/labels.json";
 import negatorsJson from "./core/sentiment-en/negators.json";
 
 const LABELS = labels as Record<string, number>;
 const NEGATORS = new Set(Object.keys(negatorsJson as Record<string, number>));
 
+export interface SentimentResult {
+  sentiment: number;
+  fearGreed: number;
+  sources: number;
+  articles: number;
+  stale: boolean;
+  ageMinutes: number;
+  bySource: Record<string, number>;
+  proxy: boolean;
+}
+
 function tokenize(input: string): string[] {
   return input.toLowerCase()
     .replace(/\n/g, " ")
-    .replace(/[.,\/#!?$%\^&\*;:{}=_`\"~()]/g, " ")
+    .replace(/[.,\/#!$%\^&\*;:{}=_`\"~()]/g, " ")
     .replace(/\s\s+/g, " ")
     .trim()
     .split(" ");
 }
 
-function polarity(text: string): number {
+export function polarity(text: string): number {
   try {
     const tokens = tokenize(text);
     let score = 0;
@@ -46,80 +48,149 @@ function polarity(text: string): number {
   } catch { return 0; }
 }
 
-async function getJson(url: string): Promise<any | null> {
+export function normalizeHeadline(title: string): string {
+  return title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().slice(0, 90);
+}
+
+export function dedupeHeadlines(headlines: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const h of headlines) {
+    const key = normalizeHeadline(h);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(h);
+  }
+  return out;
+}
+
+export function aggregateScores(scores: { name: string; score: number; weight: number }[]) {
+  const valid = scores.filter((s) => Number.isFinite(s.score) && s.score !== 0);
+  const totalWeight = valid.reduce((a, s) => a + s.weight, 0);
+  const bySource: Record<string, number> = {};
+  for (const s of valid) bySource[s.name] = Number(s.score.toFixed(4));
+  return {
+    value: totalWeight ? valid.reduce((a, s) => a + s.score * s.weight, 0) / totalWeight : 0,
+    sources: valid.length,
+    bySource,
+  };
+}
+
+async function getJson(url: string, timeout = 8000): Promise<any | null> {
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    const res = await fetch(url, { signal: AbortSignal.timeout(timeout) });
     if (!res.ok) return null;
     return await res.json();
   } catch { return null; }
 }
 
-export async function fetchCryptoPanic(apiKey: string | undefined, currency = "BTC"): Promise<number> {
-  if (!apiKey) return 0;
-  const j = await getJson(`https://cryptopanic.com/api/v1/posts/?auth_token=${apiKey}&currencies=${currency}&public=true&page=1`);
-  const items = j?.results ?? [];
-  const scores = items.map((it: any) => polarity(String(it.title ?? ""))).filter((s: number) => s !== 0);
-  return scores.length ? scores.reduce((a: number, b: number) => a + b, 0) / scores.length : 0;
+let gdeltCache: { at: number; titles: string[] } | null = null;
+let lastHeadlineAt = 0; // freshest successful source, for staleness
+
+export async function fetchGdeltHeadlines(
+  currency: string,
+  proxy?: { url: string; token: string },
+  max = 50,
+): Promise<string[]> {
+  // GDELT asks for no more than one request every 5 seconds; cache for 5 min.
+  if (gdeltCache && Date.now() - gdeltCache.at < 5 * 60 * 1000) return gdeltCache.titles;
+  const query = `${currency} OR bitcoin OR cryptocurrency`;
+  const direct = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(query)}&mode=artlist&maxrecords=${max}&format=json&timespan=1d&sort=datedesc`;
+  let j = await getJson(direct, 10000);
+  if (!j && proxy?.url && proxy.token) {
+    // GDELT may be blocked from Cloudflare egress; use the Vercel executor.
+    try {
+      const r = await fetch(`${proxy.url.replace(/\/$/, "")}/api/gdelt?q=${encodeURIComponent(query)}`, {
+        headers: { "x-executor-token": proxy.token }, signal: AbortSignal.timeout(12000),
+      });
+      if (r.ok) j = await r.json();
+    } catch { /* keep empty */ }
+  }
+  const titles = (j?.articles ?? []).map((a: any) => String(a.title ?? "").trim()).filter(Boolean);
+  if (titles.length) gdeltCache = { at: Date.now(), titles };
+  return titles;
 }
 
-export async function fetchNewsApi(apiKey: string | undefined): Promise<number> {
-  if (!apiKey) return 0;
-  const j = await getJson(`https://newsapi.org/v2/everything?q=${encodeURIComponent("bitcoin OR crypto")}&language=en&sortBy=publishedAt&pageSize=10&apiKey=${apiKey}`);
-  const heads = (j?.articles ?? []).map((a: any) => String(a.title ?? "")).filter(Boolean);
-  if (!heads.length) return 0;
-  return heads.reduce((s: number, h: string) => s + polarity(h), 0) / heads.length;
+export async function fetchCryptoPanicHeadlines(apiKey: string | undefined, currency = "BTC"): Promise<string[]> {
+  if (!apiKey) return [];
+  const j = await getJson(`https://cryptopanic.com/api/v1/posts/?auth_token=${apiKey}&currencies=${currency}&public=true&page=1`);
+  return (j?.results ?? []).map((it: any) => String(it.title ?? "")).filter(Boolean);
+}
+
+export async function fetchNewsApiHeadlines(apiKey: string | undefined): Promise<string[]> {
+  if (!apiKey) return [];
+  const j = await getJson(`https://newsapi.org/v2/everything?q=${encodeURIComponent("bitcoin OR crypto")}&language=en&sortBy=publishedAt&pageSize=20&apiKey=${apiKey}`);
+  return (j?.articles ?? []).map((a: any) => String(a.title ?? "")).filter(Boolean);
 }
 
 const RSS_FEEDS = [
   "https://cointelegraph.com/rss",
   "https://www.coindesk.com/arc/outboundfeeds/rss/?outputType=xml",
-  "https://feeds.feedburner.com/CoinDesk",
   "https://bitcoinmagazine.com/feed",
+  "https://decrypt.co/feed",
+  "https://www.thenewscrypto.com/feed",
+  "https://coinjournal.net/feed/",
 ];
 
-export async function fetchRssSentiment(feedUrl: string, maxItems = 10): Promise<number> {
+export async function fetchRssHeadlines(feedUrl: string, maxItems = 15): Promise<string[]> {
   try {
     const res = await fetch(feedUrl, {
       signal: AbortSignal.timeout(8000),
-      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36" },
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.0.0 Safari/537.36" },
     });
-    if (!res.ok) return 0;
+    if (!res.ok) return [];
     const xml = await res.text();
     const titles: string[] = [];
     const itemRe = /<item[\s\S]*?<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/g;
     let m: RegExpExecArray | null;
     while ((m = itemRe.exec(xml)) !== null && titles.length < maxItems) titles.push(m[1].trim());
-    if (!titles.length) return 0;
-    return titles.reduce((s, t) => s + polarity(t), 0) / titles.length;
-  } catch { return 0; }
+    return titles;
+  } catch { return []; }
 }
 
 export async function fetchFearGreed(): Promise<number> {
-  const j = await getJson("https://api.alternative.me/fng/");
+  const j = await getJson("https://api.alternative.me/fng/?limit=1");
   const v = j?.data?.[0]?.value;
   return v === undefined ? 50 : parseInt(String(v), 10);
 }
 
-export async function getLiveSentiment(env: { CRYPTOPANIC_API_KEY?: string; NEWSAPI_KEY?: string; DEMO_PROXY_SENTIMENT?: string }, currency = "BTC"):
-  Promise<{ sentiment: number; fearGreed: number; sources: number; proxy: boolean }> {
+function scoreHeadlines(headlines: string[]): number {
+  const scores = headlines.map(polarity).filter((s) => s !== 0);
+  return scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+}
+
+export async function getLiveSentiment(
+  env: { CRYPTOPANIC_API_KEY?: string; NEWSAPI_KEY?: string; DEMO_PROXY_SENTIMENT?: string; SENTIMENT_STALE_MINUTES?: string; VERCEL_EXECUTOR_URL?: string; EXECUTOR_TOKEN?: string },
+  currency = "BTC",
+): Promise<SentimentResult> {
   const fearGreed = await fetchFearGreed();
-  const scores: number[] = [];
-  const cp = await fetchCryptoPanic(env.CRYPTOPANIC_API_KEY, currency);
-  if (cp !== 0) scores.push(cp);
-  const na = await fetchNewsApi(env.NEWSAPI_KEY);
-  if (na !== 0) scores.push(na);
-  if (scores.length < 2) {
-    for (const feed of RSS_FEEDS) {
-      const s = await fetchRssSentiment(feed);
-      if (s !== 0) scores.push(s);
-    }
+  const [cp, na, gd, ...rss] = await Promise.all([
+    fetchCryptoPanicHeadlines(env.CRYPTOPANIC_API_KEY, currency),
+    fetchNewsApiHeadlines(env.NEWSAPI_KEY),
+    fetchGdeltHeadlines(currency, env.VERCEL_EXECUTOR_URL && env.EXECUTOR_TOKEN
+      ? { url: env.VERCEL_EXECUTOR_URL, token: env.EXECUTOR_TOKEN } : undefined),
+    ...RSS_FEEDS.map((f) => fetchRssHeadlines(f)),
+  ]);
+
+  const sources: { name: string; headlines: string[]; weight: number }[] = [
+    { name: "cryptopanic", headlines: cp, weight: 1.2 },
+    { name: "newsapi", headlines: na, weight: 1.2 },
+    { name: "gdelt", headlines: gd, weight: 1.0 },
+    ...rss.map((h, i) => ({ name: `rss${i + 1}`, headlines: h, weight: 0.8 })),
+  ];
+  const scores = sources.map((s) => ({ name: s.name, score: scoreHeadlines(dedupeHeadlines(s.headlines)), weight: s.weight }));
+  const agg = aggregateScores(scores);
+  const allHeadlines = dedupeHeadlines(sources.flatMap((s) => s.headlines));
+  if (allHeadlines.length) lastHeadlineAt = Date.now();
+  const ageMinutes = lastHeadlineAt ? Math.round((Date.now() - lastHeadlineAt) / 60000) : 9999;
+  const staleLimit = Number(env.SENTIMENT_STALE_MINUTES ?? 60);
+  const stale = agg.sources === 0 || ageMinutes > staleLimit;
+
+  if (agg.sources) {
+    return { sentiment: agg.value, fearGreed, sources: agg.sources, articles: allHeadlines.length, stale, ageMinutes, bySource: agg.bySource, proxy: false };
   }
-  if (scores.length) {
-    return { sentiment: scores.reduce((a, b) => a + b, 0) / scores.length, fearGreed, sources: scores.length, proxy: false };
-  }
-  // No headline data (no keys / feeds blocked): demo proxy from Fear & Greed.
   if (env.DEMO_PROXY_SENTIMENT !== "false") {
-    return { sentiment: (fearGreed - 50) / 50, fearGreed, sources: 0, proxy: true };
+    return { sentiment: (fearGreed - 50) / 50, fearGreed, sources: 0, articles: 0, stale: true, ageMinutes, bySource: {}, proxy: true };
   }
-  return { sentiment: 0, fearGreed, sources: 0, proxy: false };
+  return { sentiment: 0, fearGreed, sources: 0, articles: 0, stale: true, ageMinutes, bySource: {}, proxy: false };
 }

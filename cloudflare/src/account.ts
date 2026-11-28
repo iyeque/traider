@@ -276,7 +276,8 @@ export class TradingAccount extends Agent<Env, AccountState> {
       this.setState({
         ...s, balance, equity, peakEquity: peak, realizedPnl: realized, feesPaid: fees,
         wins, losses, tradeCount, openPositions: positions, recentTrades, equityHistory,
-        sentiment: sent.sentiment, fearGreed: sent.fearGreed, regime, lastSignal: signal,
+        sentiment: sent.sentiment, sentimentSources: sent.sources, sentimentStale: sent.stale,
+        sentimentBySource: sent.bySource, fearGreed: sent.fearGreed, regime, lastSignal: signal,
         lastTick: now, ticks: s.ticks + 1, halted, haltReason, lastError: gate.safe ? null : gate.reason,
         ...testnetState,
       });

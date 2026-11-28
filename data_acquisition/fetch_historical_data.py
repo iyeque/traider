@@ -74,6 +74,31 @@ def fetch_rss_feed(url: str) -> list:
         logging.error(f"Error fetching RSS feed from {url}: {e}")
         return []
 
+def fetch_gdelt_news(query: str = 'bitcoin OR cryptocurrency', max_records: int = 50) -> list:
+    """Keyless GDELT DOC 2.0 headlines. Rate limit: ~1 request / 5 seconds.
+    Returns articles shaped for process_articles_for_sentiment."""
+    url = 'https://api.gdeltproject.org/api/v2/doc/doc'
+    params = {'query': query, 'mode': 'artlist', 'maxrecords': max_records, 'format': 'json', 'timespan': '1d', 'sort': 'datedesc'}
+    try:
+        r = requests.get(url, params=params, timeout=20)
+        if r.status_code == 429:
+            logging.warning('GDELT rate-limited (429); skipping this cycle.')
+            return []
+        r.raise_for_status()
+        out = []
+        for a in r.json().get('articles', []):
+            seen = str(a.get('seendate', ''))
+            try:
+                published = pd.to_datetime(seen, format='%Y%m%d%H%M%S', utc=True).isoformat()
+            except Exception:
+                continue
+            if a.get('title'):
+                out.append({'title': a['title'], 'published_at': published})
+        return out
+    except Exception as e:
+        logging.warning(f'GDELT fetch failed: {str(e)[:120]}')
+        return []
+
 def process_articles_for_sentiment(articles: list, source_type: str) -> pd.DataFrame:
     """
     Processes a list of articles (from various sources) to extract sentiment.
@@ -92,6 +117,9 @@ def process_articles_for_sentiment(articles: list, source_type: str) -> pd.DataF
         elif source_type == 'rss':
             title = article.get('title', '')
             published_at = article.get('published')
+        elif source_type == 'gdelt':
+            title = article.get('title', '')
+            published_at = article.get('published_at')
         
         if title and published_at:
             sentiment_score = analyze_text_sentiment(title) # Use your existing sentiment analyzer
@@ -123,7 +151,11 @@ def main(output_csv: str = 'historical_sentiment.csv', days_to_fetch: int = 30):
     # Example RSS Feeds - Add/Remove as needed
     rss_feeds = [
         "https://cointelegraph.com/rss",
-        "https://www.coindesk.com/feed/"
+        "https://www.coindesk.com/feed/",
+        "https://bitcoinmagazine.com/feed",
+        "https://decrypt.co/feed",
+        "https://www.thenewscrypto.com/feed",
+        "https://coinjournal.net/feed/",
     ]
 
     all_processed_sentiments = []
@@ -164,6 +196,13 @@ def main(output_csv: str = 'historical_sentiment.csv', days_to_fetch: int = 30):
         all_processed_sentiments.append(process_articles_for_sentiment(newsapi_articles, 'newsapi'))
     else:
         logging.warning("NEWSAPI_KEY not found. Skipping NewsAPI news fetch.")
+
+    # --- Fetch from GDELT (keyless, rate-limited) ---
+    logging.info("Fetching GDELT headlines...")
+    gdelt_articles = fetch_gdelt_news()
+    if gdelt_articles:
+        all_processed_sentiments.append(process_articles_for_sentiment(gdelt_articles, 'gdelt'))
+    time.sleep(5)  # GDELT asks for at least 5 seconds between requests
 
     # --- Fetch from RSS Feeds ---
     logging.info("Fetching RSS feed news...")

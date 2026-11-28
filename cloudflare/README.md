@@ -182,6 +182,19 @@ set to false to disarm). When a breakout signal fires in testnet mode the DO
 places a real market order plus OCO exits through Vercel; demo mode is unchanged. Verified with real 0.0001
 BTC testnet BUY/SELL orders filled end-to-end through Worker → Vercel → Binance.
 
+### Multi-source sentiment (2026-11-28)
+
+Headline sentiment now aggregates CryptoPanic (if key), NewsAPI (if key),
+GDELT DOC 2.0 (keyless, cached 5 min, proxied via Vercel if Cloudflare egress
+is blocked), and six RSS feeds. Headlines are deduplicated and each source is
+AFINN-scored and weighted; the live state exposes `sentimentSources`,
+`sentimentBySource` and `sentimentStale`. Fear & Greed remains a separate
+input. The historical refresh script uses the same source set.
+
+IMPORTANT: this changes the sentiment distribution, so the tuned threshold
+(0.10) no longer corresponds to the old data. Testnet orders were disarmed
+while this is validated; re-run Optuna (Phase 1c) before re-arming.
+
 ## Operating cadence (what actually runs)
 
 | Layer | Frequency | Detail |
