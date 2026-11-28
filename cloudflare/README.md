@@ -182,6 +182,18 @@ set to false to disarm). When a breakout signal fires in testnet mode the DO
 places a real market order plus OCO exits through Vercel; demo mode is unchanged. Verified with real 0.0001
 BTC testnet BUY/SELL orders filled end-to-end through Worker → Vercel → Binance.
 
+## Operating cadence (what actually runs)
+
+| Layer | Frequency | Detail |
+| --- | --- | --- |
+| Live strategy (each Durable Object) | Every 60 seconds | `scheduleEvery(60, "tick")`: fetch klines + sentiment, compute indicators, safety gate, signals. In testnet mode entries/exits go through Vercel; demo mode simulates. |
+| Market data for tuning | Daily, 00:30 UTC (04:30 local +04) | WSL cron `# traider-daily-refresh` runs `backtest/refresh_data.py --commit`: rolling 1,000 x 1h candles for four tokens plus merged hourly sentiment; commits CSVs to `cloudflare-agents`. |
+| Backtest / Optuna tuning | Every other Sunday, 02:30 UTC | `schedule: "30 2 * * 0"` plus epoch-week parity gate on the default `master` workflow; jobs check out `cloudflare-agents`. 50 Optuna trials per token, 25% out-of-sample holdout. First live scheduled run 2026-12-06. `workflow_dispatch` always runs and ignores parity. |
+| Promotion | Only after a passing bi-weekly run | Guardrails: OOS return > 0, >= 3 OOS trades, profit factor > 1.2, win rate >= 45%, max drawdown < 20%. A PR opens only if all four tokens pass; merge + redeploy is required because params are baked into the Worker at build time. |
+| Live sentiment gate | Every tick (60 s) | NewsAPI/RSS headlines + Fear & Greed; NewsAPI free tier currently 429, so RSS fallback is used. Historical sentiment CSV is refreshed daily for backtests. |
+
+Not automated yet: deeper monthly walk-forward validation. Public repos can auto-disable scheduled workflows after 60 days of inactivity; the daily data commits keep activity inside that window.
+
 ## Free tier fit (verified against Cloudflare docs, Nov 2026)
 
 - Workers Free: 100,000 requests/day, 10 ms CPU per invocation, 128 MB memory,
