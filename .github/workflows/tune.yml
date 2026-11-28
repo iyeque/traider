@@ -1,7 +1,7 @@
 name: Traider tuning (train/OOS + guarded promotion)
 
-# workflow_dispatch only: GitHub runs `schedule:` workflows on the DEFAULT
-# branch (main here, which is stale). Dispatch externally or from the UI:
+# GitHub registers `schedule:` workflows from the DEFAULT branch (master).
+# Jobs check out cloudflare-agents; manual dispatch works from the UI:
 #   scripts/dispatch_tune.sh  (uses GITHUB_TOKEN)
 on:
   schedule:
